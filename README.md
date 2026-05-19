@@ -2,6 +2,57 @@
 
 本项目实现本地 OpenCode 工作流：调用现有 `dts_data_fetch.py` 拉取 DTS Excel，解析 `修改文件清单` 中的 GitCode PR URL，提取修复前/修复后代码片段，沉淀到 SQLite 安全知识库，并在新项目仓中匹配同类代码问题、生成安全测试报告。
 
+## 三层架构图
+
+![DTS Guardian 三层架构图](docs/assets/dts_guardian_architecture.svg)
+
+### 分层职责
+
+- 第 1 层负责本地 OpenCode 操作入口和定时任务入口，不直接实现业务逻辑。
+- 第 2 层负责所有可测试的核心逻辑，包括 Excel 导入、PR URL 标准化、GitCode diff 解析、问题模式抽取、相似代码检视和报告生成。
+- 第 3 层负责数据来源和落地结果，包括 `dts_data_fetch.py`、DTS Excel、GitCode PR、SQLite 知识库、目标代码仓和最终报告。
+
+## 端到端工作流
+
+```mermaid
+sequenceDiagram
+  participant User as 使用者/OpenCode
+  participant Agent as DTS Agents
+  participant CLI as dts_agent CLI
+  participant Fetch as dts_data_fetch.py
+  participant Excel as DTS Excel
+  participant GitCode as GitCode PR
+  participant KB as SQLite 知识库
+  participant Repo as 目标代码仓
+  participant Report as 安全测试报告
+
+  User->>Agent: /dts-sync 或定时任务触发
+  Agent->>CLI: sync
+  CLI->>Fetch: 调用 DTS 拉取脚本
+  Fetch-->>Excel: 输出问题单 Excel
+  CLI->>Excel: 读取 7 列字段
+  CLI->>GitCode: 解析 PR URL 并拉取 diff
+  GitCode-->>CLI: 返回修复前/修复后代码片段
+  CLI->>KB: 写入 ticket/pr/snippet/issue_pattern
+  User->>Agent: /dts-review
+  Agent->>CLI: review-diff 或 review-repo
+  CLI->>Repo: 提取当前代码片段
+  CLI->>KB: 检索历史同类问题
+  KB-->>CLI: 返回相似问题和修复建议
+  CLI-->>Agent: 返回 finding JSON
+  User->>Agent: /dts-report
+  Agent->>CLI: report
+  CLI-->>Report: 生成 Markdown/JSON 报告
+```
+
+### 工作流说明
+
+- `/dts-sync`：手动触发同步，默认调用 `dts_agent\dts_tools\dts_data_fetch.py`，导入 Excel，抓取 GitCode PR diff，更新 SQLite 知识库。
+- Windows 定时任务：周期性执行同一条 `sync` 链路，用于无人值守增量更新。
+- `/dts-query`：按问题单号、问题类型、关键词或代码片段查询历史安全知识。
+- `/dts-review`：检视当前 git diff 或完整仓库，匹配历史同类问题，输出风险等级、文件位置、相似问题单、证据和修复建议。
+- `/dts-report`：基于最近一次检视结果生成安全测试报告，默认输出 Markdown，同时支持 JSON。
+
 ## 运行方式
 
 初始化：

@@ -1,0 +1,286 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title desc">
+  <title id="title">DTS Guardian 三层架构图</title>
+  <desc id="desc">DTS 问题单知识库与 AI 白盒代码检测系统的 Windows 轻量化本地架构。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f8fbff"/>
+      <stop offset="100%" stop-color="#eef6ff"/>
+    </linearGradient>
+    <linearGradient id="blueHead" x1="0" x2="1">
+      <stop offset="0%" stop-color="#2f7df6"/>
+      <stop offset="100%" stop-color="#7bbcff"/>
+    </linearGradient>
+    <linearGradient id="softBlue" x1="0" x2="1">
+      <stop offset="0%" stop-color="#f7fbff"/>
+      <stop offset="100%" stop-color="#edf6ff"/>
+    </linearGradient>
+    <linearGradient id="softGreen" x1="0" x2="1">
+      <stop offset="0%" stop-color="#f5fff7"/>
+      <stop offset="100%" stop-color="#e9f9ee"/>
+    </linearGradient>
+    <linearGradient id="softPurple" x1="0" x2="1">
+      <stop offset="0%" stop-color="#fbf7ff"/>
+      <stop offset="100%" stop-color="#f0e8ff"/>
+    </linearGradient>
+    <linearGradient id="softYellow" x1="0" x2="1">
+      <stop offset="0%" stop-color="#fffdf4"/>
+      <stop offset="100%" stop-color="#fff3c4"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#2b5b88" flood-opacity="0.15"/>
+    </filter>
+    <marker id="arrowData" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#70ad2a"/>
+    </marker>
+    <marker id="arrowControl" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#5d8eb8"/>
+    </marker>
+    <marker id="arrowExternal" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#8b47d9"/>
+    </marker>
+    <style>
+      .title{font:700 34px "Microsoft YaHei","Segoe UI",Arial,sans-serif;fill:#101828}
+      .subtitle{font:600 17px "Microsoft YaHei","Segoe UI",Arial,sans-serif;fill:#344054}
+      .sectionTitle{font:700 18px "Microsoft YaHei","Segoe UI",Arial,sans-serif;fill:#075db3}
+      .boxTitle{font:700 16px "Microsoft YaHei","Segoe UI",Arial,sans-serif;fill:#111827}
+      .smallTitle{font:700 14px "Microsoft YaHei","Segoe UI",Arial,sans-serif;fill:#111827}
+      .text{font:13px "Microsoft YaHei","Segoe UI",Arial,sans-serif;fill:#1f2937}
+      .small{font:12px "Microsoft YaHei","Segoe UI",Arial,sans-serif;fill:#374151}
+      .tiny{font:11px "Microsoft YaHei","Segoe UI",Arial,sans-serif;fill:#475467}
+      .white{fill:#fff}
+      .panel{fill:#fff;stroke:#8bbcff;stroke-width:1.5;rx:9;filter:url(#shadow)}
+      .subpanel{fill:#fff;stroke:#9fc8ff;stroke-width:1.3;rx:8}
+      .bluePanel{fill:url(#softBlue);stroke:#76aef8;stroke-width:1.6;rx:10}
+      .greenPanel{fill:url(#softGreen);stroke:#8fd19e;stroke-width:1.5;rx:10}
+      .purplePanel{fill:url(#softPurple);stroke:#c6a8f2;stroke-width:1.5;rx:10}
+      .yellowPanel{fill:url(#softYellow);stroke:#ffd463;stroke-width:1.5;rx:10}
+      .header{fill:url(#blueHead);rx:8}
+      .dataArrow{stroke:#70ad2a;stroke-width:2.4;fill:none;marker-end:url(#arrowData)}
+      .controlArrow{stroke:#5d8eb8;stroke-width:2;stroke-dasharray:7 6;fill:none;marker-end:url(#arrowControl)}
+      .externalArrow{stroke:#8b47d9;stroke-width:2.5;fill:none;marker-end:url(#arrowExternal)}
+      .thin{stroke-width:1.4}
+      .mutedLine{stroke:#d0e5ff;stroke-width:1.2;fill:none}
+    </style>
+  </defs>
+
+  <rect width="1600" height="1120" fill="url(#bg)"/>
+
+  <text x="26" y="40" class="title">DTS 问题单知识库 + AI 白盒代码检测系统（Windows 轻量化方案）</text>
+  <text x="28" y="72" class="subtitle">基于 OpenCode Agent + Skills + Tools 架构，本地 Python/SQLite 运行，支持 DTS 增量同步、知识沉淀、同类问题检视与报告生成</text>
+
+  <rect x="1050" y="18" width="505" height="55" rx="7" fill="#fff" stroke="#98a2b3"/>
+  <text x="1068" y="52" class="smallTitle">图例：</text>
+  <path d="M1135 45 H1195" class="dataArrow"/>
+  <text x="1205" y="50" class="small">数据流</text>
+  <path d="M1265 45 H1325" class="controlArrow"/>
+  <text x="1335" y="50" class="small">控制流</text>
+  <path d="M1395 45 H1455" class="externalArrow"/>
+  <text x="1465" y="50" class="small">外部交互</text>
+
+  <!-- Left data source column -->
+  <rect x="24" y="120" width="145" height="800" class="panel"/>
+  <rect x="24" y="120" width="145" height="48" class="header"/>
+  <text x="66" y="151" class="sectionTitle white">数据源</text>
+  <text x="72" y="220" class="boxTitle">DTS</text>
+  <text x="49" y="247" class="small">问题单 Excel</text>
+  <text x="49" y="268" class="small">7 列固定字段</text>
+  <circle cx="96" cy="207" r="26" fill="#fff" stroke="#c2ddff"/>
+  <path d="M84 205 C87 188 105 188 109 205 C105 220 88 220 84 205 Z" fill="#e2231a"/>
+  <path d="M96 181 L96 229" stroke="#e2231a" stroke-width="2"/>
+
+  <text x="57" y="365" class="boxTitle">GitCode</text>
+  <text x="39" y="392" class="small">PR URL 列表</text>
+  <text x="39" y="413" class="small">old/new diff</text>
+  <rect x="68" y="310" width="56" height="36" rx="8" fill="#fff" stroke="#7c8ea3"/>
+  <path d="M78 328 H114 M96 316 V340" stroke="#7c8ea3" stroke-width="3"/>
+
+  <text x="51" y="515" class="boxTitle">代码仓库</text>
+  <text x="41" y="542" class="small">本地 repo/diff</text>
+  <text x="41" y="563" class="small">待检视代码</text>
+  <rect x="67" y="460" width="58" height="42" rx="7" fill="#fff" stroke="#7c8ea3"/>
+  <path d="M80 490 L96 470 L112 490" stroke="#7c8ea3" stroke-width="3" fill="none"/>
+
+  <text x="45" y="690" class="boxTitle">用户/开发者</text>
+  <text x="39" y="717" class="small">OpenCode</text>
+  <text x="39" y="738" class="small">Windows 终端</text>
+  <circle cx="96" cy="640" r="20" fill="#f8bd4a"/>
+  <path d="M61 690 C66 660 126 660 131 690" fill="#f8bd4a"/>
+
+  <!-- Main frame -->
+  <rect x="220" y="120" width="1050" height="800" class="bluePanel"/>
+  <text x="600" y="153" class="sectionTitle">OpenCode Agent 核心（本地运行，Python 3.11+ / SQLite）</text>
+
+  <!-- Core layer -->
+  <rect x="248" y="180" width="250" height="165" class="subpanel"/>
+  <text x="307" y="212" class="boxTitle">Agent Orchestrator</text>
+  <text x="286" y="250" class="text">• 任务规划与路由</text>
+  <text x="286" y="278" class="text">• Tool 调用编排</text>
+  <text x="286" y="306" class="text">• 日志与结果汇总</text>
+
+  <rect x="545" y="180" width="310" height="165" class="subpanel"/>
+  <text x="645" y="212" class="boxTitle">Memory / 状态</text>
+  <rect x="568" y="245" width="120" height="70" rx="8" fill="#f7fbff" stroke="#71a7f2"/>
+  <text x="592" y="280" class="smallTitle">会话状态</text>
+  <text x="595" y="303" class="tiny">review id</text>
+  <rect x="710" y="245" width="120" height="70" rx="8" fill="#f7fbff" stroke="#71a7f2"/>
+  <text x="734" y="280" class="smallTitle">知识状态</text>
+  <text x="735" y="303" class="tiny">watermark</text>
+
+  <rect x="910" y="180" width="250" height="165" class="subpanel"/>
+  <text x="983" y="212" class="boxTitle">Event Bus</text>
+  <text x="948" y="250" class="text">• 同步任务事件</text>
+  <text x="948" y="278" class="text">• 解析/检视事件</text>
+  <text x="948" y="306" class="text">• 报告生成事件</text>
+
+  <path d="M498 258 H545" class="controlArrow thin"/>
+  <path d="M855 258 H910" class="controlArrow thin"/>
+
+  <!-- Skills layer -->
+  <rect x="245" y="375" width="990" height="310" rx="9" fill="#f8fcff" stroke="#b5d7ff"/>
+  <text x="540" y="402" class="sectionTitle">Skills / Tools 层（每个能力可独立测试、可扩展）</text>
+
+  <rect x="275" y="430" width="135" height="185" class="subpanel"/>
+  <text x="315" y="458" class="smallTitle">Skill 1</text>
+  <text x="294" y="485" class="smallTitle">数据同步</text>
+  <text x="292" y="520" class="small">调用脚本</text>
+  <text x="292" y="542" class="small">导入 Excel</text>
+  <text x="292" y="564" class="small">记录任务</text>
+  <rect x="287" y="585" width="111" height="23" rx="4" fill="#edf6ff" stroke="#cde3ff"/>
+  <text x="299" y="602" class="tiny">fetch_tool.py</text>
+
+  <rect x="430" y="430" width="135" height="185" class="subpanel"/>
+  <text x="470" y="458" class="smallTitle">Skill 2</text>
+  <text x="449" y="485" class="smallTitle">文本解析</text>
+  <text x="447" y="520" class="small">Excel 字段</text>
+  <text x="447" y="542" class="small">PR URL 列表</text>
+  <text x="447" y="564" class="small">URL 标准化</text>
+  <rect x="442" y="585" width="111" height="23" rx="4" fill="#edf6ff" stroke="#cde3ff"/>
+  <text x="451" y="602" class="tiny">excel/pr parser</text>
+
+  <rect x="585" y="430" width="135" height="185" class="subpanel"/>
+  <text x="625" y="458" class="smallTitle">Skill 3</text>
+  <text x="604" y="485" class="smallTitle">Diff 抽取</text>
+  <text x="602" y="520" class="small">GitCode API</text>
+  <text x="602" y="542" class="small">patch 解析</text>
+  <text x="602" y="564" class="small">old/new 片段</text>
+  <rect x="597" y="585" width="111" height="23" rx="4" fill="#edf6ff" stroke="#cde3ff"/>
+  <text x="604" y="602" class="tiny">gitcode_client</text>
+
+  <rect x="740" y="430" width="135" height="185" class="subpanel"/>
+  <text x="780" y="458" class="smallTitle">Skill 4</text>
+  <text x="759" y="485" class="smallTitle">知识库管理</text>
+  <text x="757" y="520" class="small">SQLite 表</text>
+  <text x="757" y="542" class="small">FTS5 检索</text>
+  <text x="757" y="564" class="small">去重入库</text>
+  <rect x="752" y="585" width="111" height="23" rx="4" fill="#edf6ff" stroke="#cde3ff"/>
+  <text x="763" y="602" class="tiny">sqlite_store</text>
+
+  <rect x="895" y="430" width="135" height="185" class="subpanel"/>
+  <text x="935" y="458" class="smallTitle">Skill 5</text>
+  <text x="914" y="485" class="smallTitle">白盒检视</text>
+  <text x="912" y="520" class="small">repo/diff</text>
+  <text x="912" y="542" class="small">代码特征</text>
+  <text x="912" y="564" class="small">相似匹配</text>
+  <rect x="907" y="585" width="111" height="23" rx="4" fill="#edf6ff" stroke="#cde3ff"/>
+  <text x="931" y="602" class="tiny">reviewer</text>
+
+  <rect x="1050" y="430" width="135" height="185" class="subpanel"/>
+  <text x="1090" y="458" class="smallTitle">Skill 6</text>
+  <text x="1070" y="485" class="smallTitle">报告生成</text>
+  <text x="1067" y="520" class="small">Markdown</text>
+  <text x="1067" y="542" class="small">JSON</text>
+  <text x="1067" y="564" class="small">证据链</text>
+  <rect x="1062" y="585" width="111" height="23" rx="4" fill="#edf6ff" stroke="#cde3ff"/>
+  <text x="1086" y="602" class="tiny">report.py</text>
+
+  <!-- Storage layer -->
+  <rect x="245" y="715" width="740" height="165" rx="9" fill="#f7fbff" stroke="#b5d7ff"/>
+  <text x="518" y="743" class="sectionTitle">数据存储层（全部本地，轻量级）</text>
+
+  <rect x="280" y="765" width="185" height="90" class="subpanel"/>
+  <text x="319" y="793" class="smallTitle">SQLite 主库</text>
+  <text x="303" y="821" class="small">tickets / pr_links</text>
+  <text x="303" y="844" class="small">snippets / patterns</text>
+
+  <rect x="505" y="765" width="185" height="90" class="subpanel"/>
+  <text x="547" y="793" class="smallTitle">FTS5 索引</text>
+  <text x="528" y="821" class="small">关键词检索</text>
+  <text x="528" y="844" class="small">证据文本召回</text>
+
+  <rect x="730" y="765" width="220" height="90" class="subpanel"/>
+  <text x="785" y="793" class="smallTitle">文件存储</text>
+  <text x="755" y="821" class="small">Excel / 日志 / 报告</text>
+  <text x="755" y="844" class="small">data/ 与 reports/</text>
+
+  <!-- Application and runtime layers -->
+  <rect x="260" y="945" width="700" height="115" class="purplePanel"/>
+  <text x="508" y="974" class="sectionTitle">应用层（OpenCode / Windows 客户端）</text>
+  <rect x="292" y="998" width="190" height="42" rx="6" fill="#fff" stroke="#cbb2f0"/>
+  <text x="315" y="1025" class="smallTitle">CLI / PowerShell</text>
+  <rect x="515" y="998" width="190" height="42" rx="6" fill="#fff" stroke="#cbb2f0"/>
+  <text x="547" y="1025" class="smallTitle">OpenCode Commands</text>
+  <rect x="738" y="998" width="190" height="42" rx="6" fill="#fff" stroke="#cbb2f0"/>
+  <text x="765" y="1025" class="smallTitle">Agents / Skills</text>
+
+  <rect x="80" y="1045" width="1120" height="55" class="yellowPanel"/>
+  <text x="280" y="1078" class="sectionTitle">运行环境：Windows 10/11 64 位 + Python 3.11+ + 标准库优先 + SQLite 单文件数据库</text>
+
+  <!-- Optional AI service -->
+  <rect x="1015" y="720" width="220" height="150" class="greenPanel"/>
+  <text x="1060" y="753" class="sectionTitle">外部 AI（可选）</text>
+  <text x="1040" y="790" class="small">• 本地模型 / 内网网关</text>
+  <text x="1040" y="816" class="small">• 辅助分类与建议生成</text>
+  <text x="1040" y="842" class="small">• 默认规则可独立运行</text>
+
+  <!-- Right side panels -->
+  <rect x="1310" y="120" width="250" height="315" class="panel"/>
+  <rect x="1310" y="120" width="250" height="48" class="header"/>
+  <text x="1390" y="151" class="sectionTitle white">系统特性</text>
+  <text x="1340" y="200" class="text">✓ 完全本地运行</text>
+  <text x="1340" y="235" class="text">✓ 无需容器 / WSL</text>
+  <text x="1340" y="270" class="text">✓ SQLite 轻量部署</text>
+  <text x="1340" y="305" class="text">✓ 支持定时增量</text>
+  <text x="1340" y="340" class="text">✓ 可扩展 Skills/Tools</text>
+  <text x="1340" y="375" class="text">✓ OpenCode 工作流融合</text>
+
+  <rect x="1310" y="465" width="250" height="220" class="panel"/>
+  <rect x="1310" y="465" width="250" height="48" class="header"/>
+  <text x="1390" y="496" class="sectionTitle white">安全性</text>
+  <text x="1340" y="545" class="text">• 本地数据存储</text>
+  <text x="1340" y="580" class="text">• DTS 证据可追溯</text>
+  <text x="1340" y="615" class="text">• GitCode Token 环境变量</text>
+  <text x="1340" y="650" class="text">• 不提交 SQLite 与 Excel</text>
+
+  <rect x="1310" y="725" width="250" height="315" class="purplePanel"/>
+  <text x="1370" y="760" class="sectionTitle">数据流说明</text>
+  <text x="1340" y="805" class="text">1. 定时或手动同步</text>
+  <path d="M1345 824 H1520" class="dataArrow"/>
+  <text x="1340" y="860" class="text">2. Excel 解析与 URL 提取</text>
+  <path d="M1345 879 H1520" class="dataArrow"/>
+  <text x="1340" y="915" class="text">3. PR diff 抽取代码片段</text>
+  <path d="M1345 934 H1520" class="dataArrow"/>
+  <text x="1340" y="970" class="text">4. 入库并生成知识模式</text>
+  <path d="M1345 989 H1520" class="dataArrow"/>
+  <text x="1340" y="1025" class="text">5. 检视代码并生成报告</text>
+
+  <!-- Cross-panel flows -->
+  <path d="M170 245 H220" class="externalArrow"/>
+  <path d="M170 390 H585" class="externalArrow"/>
+  <path d="M170 535 H895" class="externalArrow"/>
+  <path d="M170 705 H260 V1002" class="externalArrow"/>
+
+  <path d="M700 345 V375" class="controlArrow"/>
+  <path d="M342 615 V765" class="dataArrow"/>
+  <path d="M497 615 V765" class="dataArrow"/>
+  <path d="M652 615 V765" class="dataArrow"/>
+  <path d="M807 615 V765" class="dataArrow"/>
+  <path d="M962 615 V720" class="dataArrow"/>
+  <path d="M1120 615 V720" class="dataArrow"/>
+
+  <path d="M465 810 H505" class="dataArrow"/>
+  <path d="M690 810 H730" class="dataArrow"/>
+  <path d="M840 855 V945" class="dataArrow"/>
+  <path d="M610 945 V880 H615" class="controlArrow"/>
+  <path d="M985 790 H1015" class="externalArrow"/>
+  <path d="M1235 790 H1310" class="controlArrow"/>
+</svg>
