@@ -33,7 +33,11 @@ sequenceDiagram
   CLI->>Excel: 读取 7 列字段
   CLI->>GitCode: 解析 PR URL 并拉取 diff
   GitCode-->>CLI: 返回修复前/修复后代码片段
-  CLI->>KB: 写入 ticket/pr/snippet/issue_pattern
+  CLI->>KB: 写入 ticket/pr/snippet
+  Agent->>CLI: judge-tasks
+  CLI-->>Agent: 返回待判定旧代码片段
+  Agent->>CLI: apply-judgement
+  CLI->>KB: 写入 snippet_judgement/issue_pattern
   User->>Agent: /dts-review
   Agent->>CLI: review-diff 或 review-repo
   CLI->>Repo: 提取当前代码片段
@@ -47,7 +51,7 @@ sequenceDiagram
 
 ### 工作流说明
 
-- `/dts-sync`：手动触发同步，默认调用 `dts_agent\dts_tools\dts_data_fetch.py`，导入 Excel，抓取 GitCode PR diff，更新 SQLite 知识库。
+- `/dts-sync`：手动触发同步，默认调用 `dts_agent\dts_tools\dts_data_fetch.py`，导入 Excel，抓取 GitCode PR diff；OpenCode Agent 模式下先写入 ticket/pr/snippet，再由 agent 判定是否入知识库。
 - Windows 定时任务：周期性执行同一条 `sync` 链路，用于无人值守增量更新。
 - `/dts-query`：按问题单号、问题类型、关键词或代码片段查询历史安全知识。
 - `/dts-review`：检视当前 git diff 或完整仓库，匹配历史同类问题，输出风险等级、文件位置、相似问题单、证据和修复建议。
@@ -73,10 +77,65 @@ python -m dts_agent sync --json
 python -m dts_agent import-excel --file .\data\inbox\dts.xlsx --json
 ```
 
+OpenCode Agent 判定模式：
+
+```powershell
+# 清掉错误知识和旧判定，保留已经导入的 DTS/PR/snippet
+python -m dts_agent clear-kb --include-judgements --json
+
+# 同步数据但不使用 Python 启发式规则自动建库
+python -m dts_agent sync --skip-build-kb --json
+
+# 导出待 OpenCode agent 判定的修复前代码片段
+python -m dts_agent judge-tasks --limit 5 --json
+
+# OpenCode agent 判定后写回；只有 has-security-issue=true 且 confidence>=0.5 才会生成 issue_pattern
+python -m dts_agent apply-judgement --snippet-id <snippet_id> `
+  --has-security-issue true `
+  --issue-type "命令注入风险" `
+  --confidence 0.9 `
+  --rationale "修复前代码使用外部输入构造命令并调用 popen。" `
+  --json
+```
+
+知识提取会先比较修复前/修复后的代码变更。仅注释、空行、格式调整、变量名风格调整或普通变量改名不会进入安全判定队列，也不会生成知识库条目。
+
 查询知识库：
 
 ```powershell
 python -m dts_agent query --query "权限校验缺失" --limit 5 --json
+```
+
+查看当前数据库内容：
+
+```powershell
+python -m dts_agent inspect-db --limit 10 --json
+```
+
+使用大模型判定修复前代码是否确实存在安全问题：
+
+```powershell
+$env:DTS_AGENT_LLM_COMMAND = "python D:\Upload\DTS_agent_new\scripts\your_llm_judge.py"
+python -m dts_agent build-kb --rebuild --require-llm --json
+```
+
+大模型判定程序从标准输入读取 JSON，必须输出严格 JSON：
+
+```json
+{
+  "has_security_issue": true,
+  "issue_type": "命令注入风险",
+  "confidence": 0.9,
+  "rationale": "修复前代码使用外部可控命令字符串调用 popen。"
+}
+```
+
+也可以配置 HTTP 服务：
+
+```powershell
+$env:DTS_AGENT_LLM_URL = "http://127.0.0.1:8000/judge"
+$env:DTS_AGENT_LLM_TOKEN = "<optional token>"
+python -m dts_agent import-excel --file .\data\inbox\dts.xlsx --require-llm --json
 ```
 
 检视当前仓库：
@@ -84,6 +143,13 @@ python -m dts_agent query --query "权限校验缺失" --limit 5 --json
 ```powershell
 python -m dts_agent review-repo --path . --json
 python -m dts_agent report --review-id latest --format md
+```
+
+排除测试目录或第三方目录：
+
+```powershell
+python -m dts_agent review-repo --path D:\code\ubs-engine --exclude test --exclude tests --json
+python -m dts_agent review-diff --path D:\code\ubs-engine --base HEAD~1 --exclude test --json
 ```
 
 ## Windows 定时同步

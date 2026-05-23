@@ -5,6 +5,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from dts_agent.code_change import has_logical_code_change
 from dts_agent.models import CodeSnippet, PrLink
 
 
@@ -115,18 +116,18 @@ def parse_unified_diff(link: PrLink, diff_text: str) -> list[CodeSnippet]:
         if not file_path or (not removed and not added):
             removed, added, context = [], [], []
             return
-        snippets.append(
-            CodeSnippet(
-                ticket_id=link.ticket_id,
-                pr_url=link.pr_url,
-                file_path=file_path,
-                old_start_line=hunk_old_start,
-                new_start_line=hunk_new_start,
-                vulnerable_snippet="\n".join(removed).strip(),
-                fixed_snippet="\n".join(added).strip(),
-                context="\n".join(context[-12:]).strip(),
-            )
+        snippet = CodeSnippet(
+            ticket_id=link.ticket_id,
+            pr_url=link.pr_url,
+            file_path=file_path,
+            old_start_line=hunk_old_start,
+            new_start_line=hunk_new_start,
+            vulnerable_snippet="\n".join(removed).strip(),
+            fixed_snippet="\n".join(added).strip(),
+            context="\n".join(context[-12:]).strip(),
         )
+        if has_logical_code_change(snippet.vulnerable_snippet, snippet.fixed_snippet):
+            snippets.append(snippet)
         removed, added, context = [], [], []
 
     for raw_line in diff_text.splitlines():
@@ -172,17 +173,17 @@ def _parse_line_objects(link: PrLink, file_path: str, rows: list[object]) -> lis
     def flush() -> None:
         nonlocal removed, added, old_start, new_start
         if removed or added:
-            snippets.append(
-                CodeSnippet(
-                    ticket_id=link.ticket_id,
-                    pr_url=link.pr_url,
-                    file_path=file_path,
-                    old_start_line=old_start,
-                    new_start_line=new_start,
-                    vulnerable_snippet="\n".join(removed).strip(),
-                    fixed_snippet="\n".join(added).strip(),
-                )
+            snippet = CodeSnippet(
+                ticket_id=link.ticket_id,
+                pr_url=link.pr_url,
+                file_path=file_path,
+                old_start_line=old_start,
+                new_start_line=new_start,
+                vulnerable_snippet="\n".join(removed).strip(),
+                fixed_snippet="\n".join(added).strip(),
             )
+            if has_logical_code_change(snippet.vulnerable_snippet, snippet.fixed_snippet):
+                snippets.append(snippet)
         removed, added, old_start, new_start = [], [], None, None
 
     for row in rows:

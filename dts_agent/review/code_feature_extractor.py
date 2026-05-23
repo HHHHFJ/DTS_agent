@@ -44,10 +44,15 @@ IGNORED_DIRS = {
 }
 
 
-def extract_repo_chunks(path: str | Path, window_lines: int = 80) -> list[CodeChunk]:
+def extract_repo_chunks(
+    path: str | Path,
+    window_lines: int = 80,
+    exclude_dirs: list[str] | tuple[str, ...] | None = None,
+) -> list[CodeChunk]:
     root = Path(path).resolve()
     chunks: list[CodeChunk] = []
-    for source in _iter_source_files(root):
+    ignored_dirs = _merged_ignored_dirs(exclude_dirs)
+    for source in _iter_source_files(root, ignored_dirs):
         try:
             text = source.read_text(encoding="utf-8", errors="ignore")
         except OSError:
@@ -69,37 +74,45 @@ def extract_repo_chunks(path: str | Path, window_lines: int = 80) -> list[CodeCh
     return chunks
 
 
-def extract_diff_chunks(path: str | Path, base: str = "HEAD~1") -> list[CodeChunk]:
+def extract_diff_chunks(
+    path: str | Path,
+    base: str = "HEAD~1",
+    exclude_dirs: list[str] | tuple[str, ...] | None = None,
+) -> list[CodeChunk]:
     root = Path(path).resolve()
+    ignored_dirs = _merged_ignored_dirs(exclude_dirs)
     try:
         completed = subprocess.run(
             ["git", "diff", "--unified=20", base],
             cwd=str(root),
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             timeout=60,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return extract_repo_chunks(root)
+        return extract_repo_chunks(root, exclude_dirs=exclude_dirs)
     if completed.returncode != 0 or not completed.stdout.strip():
-        return extract_repo_chunks(root)
-    return _chunks_from_diff(root, completed.stdout)
+        return extract_repo_chunks(root, exclude_dirs=exclude_dirs)
+    return _chunks_from_diff(root, completed.stdout, ignored_dirs)
 
 
-def _iter_source_files(root: Path):
+def _iter_source_files(root: Path, ignored_dirs: set[str]):
     for path in root.rglob("*"):
         if not path.is_file():
             continue
-        if any(part in IGNORED_DIRS for part in path.parts):
+        if _is_excluded(path, root, ignored_dirs):
             continue
         if path.suffix.lower() in SOURCE_EXTENSIONS:
             yield path
 
 
-def _chunks_from_diff(root: Path, diff_text: str) -> list[CodeChunk]:
+def _chunks_from_diff(root: Path, diff_text: str, ignored_dirs: set[str]) -> list[CodeChunk]:
     chunks: list[CodeChunk] = []
     file_path: Path | None = None
+    skip_file = False
     new_line = 0
     start_line = 0
     current: list[str] = []
@@ -124,6 +137,9 @@ def _chunks_from_diff(root: Path, diff_text: str) -> list[CodeChunk]:
         if raw_line.startswith("diff --git "):
             flush()
             file_path = _path_from_diff(raw_line, root)
+            skip_file = _is_excluded(file_path, root, ignored_dirs)
+            continue
+        if skip_file:
             continue
         if raw_line.startswith("@@"):
             flush()
@@ -145,7 +161,30 @@ def _chunks_from_diff(root: Path, diff_text: str) -> list[CodeChunk]:
         elif raw_line.startswith(" "):
             new_line += 1
     flush()
-    return chunks or extract_repo_chunks(root)
+    return chunks or extract_repo_chunks(root, exclude_dirs=tuple(ignored_dirs - IGNORED_DIRS))
+
+
+def _merged_ignored_dirs(exclude_dirs: list[str] | tuple[str, ...] | None) -> set[str]:
+    merged = set(IGNORED_DIRS)
+    for item in exclude_dirs or ():
+        normalized = item.strip().strip("/\\")
+        if normalized:
+            merged.add(normalized.replace("\\", "/"))
+            merged.add(Path(normalized).name)
+    return merged
+
+
+def _is_excluded(path: Path, root: Path, ignored_dirs: set[str]) -> bool:
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        relative = path
+    parts = {part.replace("\\", "/") for part in relative.parts}
+    relative_text = relative.as_posix()
+    for ignored in ignored_dirs:
+        if ignored in parts or relative_text == ignored or relative_text.startswith(f"{ignored}/"):
+            return True
+    return False
 
 
 def _path_from_diff(line: str, root: Path) -> Path:

@@ -2,69 +2,62 @@ from __future__ import annotations
 
 import re
 
+from dts_agent.code_change import has_logical_code_change
+from dts_agent.extraction_rules import ISSUE_RULES, issue_advice
+from dts_agent.llm_judge import HeuristicSecurityJudge, SecurityJudge
 from dts_agent.models import CodeSnippet, DtsTicket, IssuePattern
-from dts_agent.utils import fingerprint_code, json_dumps, normalize_code, sparse_embedding, stable_hash, truncate
+from dts_agent.utils import normalize_code, sparse_embedding, stable_hash, truncate
 
 
-ISSUE_RULES: tuple[tuple[str, str, str], ...] = (
-    (
-        "权限校验缺失",
-        r"权限|鉴权|认证|授权|permission|auth|privilege|capability|access",
-        "补充权限/鉴权检查，确保敏感路径在执行前完成主体、角色和资源范围校验。",
-    ),
-    (
-        "输入校验缺失",
-        r"参数|输入|校验|validate|check|invalid|非法|null|none|空指针|越界|bounds|range|length",
-        "对外部输入、长度、空值、边界和状态组合做显式校验，并保持错误返回路径一致。",
-    ),
-    (
-        "命令注入风险",
-        r"命令|shell|exec|system|popen|subprocess|注入|injection",
-        "避免拼接命令；使用参数化调用和白名单校验，必要时限制可执行命令范围。",
-    ),
-    (
-        "路径穿越风险",
-        r"路径|目录|path|file|filename|traversal|\.\./|绝对路径",
-        "规范化路径并限制在可信根目录内，拒绝穿越、绝对路径和非法文件名。",
-    ),
-    (
-        "资源释放遗漏",
-        r"释放|泄漏|close|free|release|defer|cleanup|resource|fd|handle|memory leak",
-        "确保异常和提前返回路径都释放资源，优先使用上下文管理或统一清理分支。",
-    ),
-    (
-        "并发竞态",
-        r"并发|竞态|race|lock|mutex|thread|goroutine|atomic|同步",
-        "为共享状态补充锁、原子操作或事务边界，避免检查和使用之间的竞态窗口。",
-    ),
-    (
-        "敏感信息泄露",
-        r"敏感|泄露|密码|token|secret|key|log|日志|credential",
-        "避免输出敏感字段；在日志、异常和接口响应中做脱敏或移除。",
-    ),
-    (
-        "错误处理缺失",
-        r"错误|异常|error|exception|return code|errno|fail|失败",
-        "检查错误返回并补充失败分支，避免继续使用无效状态或不完整结果。",
-    ),
-)
-
-
-def build_issue_pattern(ticket: DtsTicket, snippet_id: str, snippet: CodeSnippet) -> IssuePattern | None:
+def build_issue_pattern(
+    ticket: DtsTicket,
+    snippet_id: str,
+    snippet: CodeSnippet,
+    security_judge: SecurityJudge | None = None,
+) -> IssuePattern | None:
     vulnerable = normalize_code(snippet.vulnerable_snippet)
     fixed = normalize_code(snippet.fixed_snippet)
     if not vulnerable and not fixed:
         return None
+    if not has_logical_code_change(snippet.vulnerable_snippet, snippet.fixed_snippet):
+        return None
 
-    issue_type, advice, confidence = classify_issue(ticket.summary, snippet)
+    summary_issue = classify_summary_issue(ticket.summary)
+    judge = security_judge or HeuristicSecurityJudge()
+    judgement = judge.assess(ticket, snippet, summary_issue[0] if summary_issue else None)
+    if not judgement.has_security_issue or judgement.confidence < 0.5:
+        return None
+
+    if summary_issue and judgement.issue_type == summary_issue[0]:
+        issue_type = summary_issue[0]
+        type_decision = "DTS摘要类型与代码判定一致，采用DTS摘要类型"
+    elif judgement.issue_type and judgement.issue_type != "通用安全缺陷":
+        issue_type = judgement.issue_type
+        type_decision = "DTS摘要类型与代码判定不一致，采用代码/大模型判定类型"
+    elif summary_issue:
+        issue_type = summary_issue[0]
+        type_decision = "代码判定未给出明确类型，采用DTS摘要类型"
+    else:
+        issue_type = "通用安全缺陷"
+        type_decision = "无明确摘要类型，采用通用安全缺陷"
+
+    advice = issue_advice(issue_type)
+    confidence = min(0.98, max(judgement.confidence, summary_issue[2] if summary_issue else 0.0))
     code_feature = summarize_code_feature(snippet)
     evidence = truncate(
         "\n".join(
             part
             for part in (
                 f"DTS摘要: {ticket.summary}",
+                f"DTS摘要类型: {summary_issue[0] if summary_issue else '未命中'}",
+                f"代码安全判定: {'存在安全问题' if judgement.has_security_issue else '未确认安全问题'}",
+                f"代码判定类型: {judgement.issue_type}",
+                f"类型决策: {type_decision}",
+                f"判定来源: {judgement.source}",
+                f"判定理由: {judgement.rationale}",
                 f"PR: {snippet.pr_url}",
                 f"文件: {snippet.file_path}",
+                f"上下文:\n{normalize_code(snippet.context)}",
                 f"修复前:\n{vulnerable}",
                 f"修复后:\n{fixed}",
             )
@@ -95,22 +88,18 @@ def build_issue_pattern(ticket: DtsTicket, snippet_id: str, snippet: CodeSnippet
 
 
 def classify_issue(summary: str, snippet: CodeSnippet) -> tuple[str, str, float]:
+    summary_best = classify_summary_issue(summary)
+    if summary_best:
+        return summary_best
+
     haystack = "\n".join(
         [
-            summary or "",
             snippet.vulnerable_snippet or "",
             snippet.fixed_snippet or "",
             snippet.file_path or "",
         ]
     ).lower()
-    best: tuple[str, str, float] | None = None
-    for issue_type, pattern, advice in ISSUE_RULES:
-        matches = len(re.findall(pattern, haystack, flags=re.IGNORECASE))
-        if matches:
-            confidence = min(0.92, 0.55 + matches * 0.08)
-            if best is None or confidence > best[2]:
-                best = (issue_type, advice, confidence)
-
+    best = _classify_text(haystack, base=0.50)
     if best:
         return best
     return (
@@ -118,6 +107,21 @@ def classify_issue(summary: str, snippet: CodeSnippet) -> tuple[str, str, float]
         "结合历史修复前后差异补充等价防护逻辑，并为边界、异常和失败路径增加测试。",
         0.45,
     )
+
+
+def classify_summary_issue(summary: str) -> tuple[str, str, float] | None:
+    return _classify_text(summary or "", base=0.72)
+
+
+def _classify_text(text: str, base: float) -> tuple[str, str, float] | None:
+    best: tuple[str, str, float] | None = None
+    for issue_type, pattern, advice in ISSUE_RULES:
+        matches = len(re.findall(pattern, text, flags=re.IGNORECASE))
+        if matches:
+            confidence = min(0.96, base + matches * 0.08)
+            if best is None or confidence > best[2]:
+                best = (issue_type, advice, confidence)
+    return best
 
 
 def summarize_code_feature(snippet: CodeSnippet) -> str:

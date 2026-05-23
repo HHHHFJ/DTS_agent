@@ -60,6 +60,20 @@ CREATE TABLE IF NOT EXISTS code_snippets (
   created_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS snippet_judgements (
+  id TEXT PRIMARY KEY,
+  snippet_id TEXT UNIQUE,
+  ticket_id TEXT,
+  has_security_issue INTEGER,
+  issue_type TEXT,
+  confidence REAL,
+  rationale TEXT,
+  fix_advice TEXT,
+  source TEXT,
+  raw_json TEXT,
+  created_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS issue_patterns (
   id TEXT PRIMARY KEY,
   ticket_id TEXT,
@@ -354,17 +368,158 @@ class KnowledgeStore:
         return [dict(row) for row in rows]
 
     def list_snippets_without_patterns(self) -> list[dict[str, Any]]:
+        return self.list_snippets_for_pattern_build(only_missing_patterns=True)
+
+    def list_snippets_for_pattern_build(self, only_missing_patterns: bool = False) -> list[dict[str, Any]]:
+        where = "WHERE p.id IS NULL" if only_missing_patterns else ""
         with self.connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT s.*, t.summary, t.severity, t.created_at, t.reporter, t.serial_no, t.raw_json
                 FROM code_snippets s
                 LEFT JOIN issue_patterns p ON p.snippet_id = s.id
                 LEFT JOIN dts_tickets t ON t.ticket_id = s.ticket_id
-                WHERE p.id IS NULL
+                {where}
                 """
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def clear_issue_patterns(self) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM issue_patterns")
+            conn.execute("DELETE FROM issue_patterns_fts")
+
+    def clear_snippet_judgements(self) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM snippet_judgements")
+
+    def delete_pattern_by_snippet(self, snippet_id: str) -> None:
+        with self.connect() as conn:
+            pattern_rows = conn.execute(
+                "SELECT id FROM issue_patterns WHERE snippet_id = ?",
+                (snippet_id,),
+            ).fetchall()
+            conn.execute("DELETE FROM issue_patterns WHERE snippet_id = ?", (snippet_id,))
+            for row in pattern_rows:
+                conn.execute("DELETE FROM issue_patterns_fts WHERE pattern_id = ?", (row["id"],))
+
+    def upsert_snippet_judgement(
+        self,
+        *,
+        snippet_id: str,
+        ticket_id: str,
+        has_security_issue: bool,
+        issue_type: str,
+        confidence: float,
+        rationale: str,
+        fix_advice: str = "",
+        source: str = "opencode-agent",
+        raw: dict[str, Any] | None = None,
+    ) -> str:
+        judgement_id = stable_hash(f"judgement:{snippet_id}", length=32)
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO snippet_judgements(
+                  id, snippet_id, ticket_id, has_security_issue, issue_type,
+                  confidence, rationale, fix_advice, source, raw_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(snippet_id) DO UPDATE SET
+                  ticket_id=excluded.ticket_id,
+                  has_security_issue=excluded.has_security_issue,
+                  issue_type=excluded.issue_type,
+                  confidence=excluded.confidence,
+                  rationale=excluded.rationale,
+                  fix_advice=excluded.fix_advice,
+                  source=excluded.source,
+                  raw_json=excluded.raw_json,
+                  created_at=excluded.created_at
+                """,
+                (
+                    judgement_id,
+                    snippet_id,
+                    ticket_id,
+                    1 if has_security_issue else 0,
+                    issue_type,
+                    confidence,
+                    rationale,
+                    fix_advice,
+                    source,
+                    json_dumps(raw or {}),
+                    utc_now_text(),
+                ),
+            )
+        return judgement_id
+
+    def list_judgement_tasks(
+        self,
+        *,
+        limit: int = 5,
+        ticket_id: str | None = None,
+        rejudge: bool = False,
+    ) -> list[dict[str, Any]]:
+        where: list[str] = []
+        args: list[Any] = []
+        if ticket_id:
+            where.append("s.ticket_id = ?")
+            args.append(ticket_id)
+        if not rejudge:
+            where.append("j.id IS NULL")
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        args.append(max(1, min(limit, 100)))
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                  s.*,
+                  t.summary,
+                  t.severity,
+                  t.created_at AS ticket_created_at,
+                  t.reporter,
+                  t.serial_no,
+                  t.raw_json,
+                  j.has_security_issue,
+                  j.issue_type AS judged_issue_type,
+                  j.confidence AS judged_confidence,
+                  j.rationale AS judged_rationale,
+                  j.fix_advice AS judged_fix_advice,
+                  j.source AS judged_source,
+                  j.created_at AS judged_at
+                FROM code_snippets s
+                LEFT JOIN dts_tickets t ON t.ticket_id = s.ticket_id
+                LEFT JOIN snippet_judgements j ON j.snippet_id = s.id
+                {where_sql}
+                ORDER BY s.created_at ASC
+                LIMIT ?
+                """,
+                tuple(args),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_snippet_task(self, snippet_id: str) -> dict[str, Any] | None:
+        rows = self.list_judgement_tasks(limit=1, rejudge=True)
+        for row in rows:
+            if row["id"] == snippet_id:
+                return row
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                  s.*,
+                  t.summary,
+                  t.severity,
+                  t.created_at AS ticket_created_at,
+                  t.reporter,
+                  t.serial_no,
+                  t.raw_json
+                FROM code_snippets s
+                LEFT JOIN dts_tickets t ON t.ticket_id = s.ticket_id
+                WHERE s.id = ?
+                """,
+                (snippet_id,),
+            ).fetchone()
+        return dict(row) if row else None
 
     def all_patterns(self) -> list[dict[str, Any]]:
         with self.connect() as conn:
@@ -395,12 +550,15 @@ class KnowledgeStore:
                 )
             )
             text_overlap = cosine(sparse_embedding(query), sparse_embedding(text))
-            relevance = max(vector_score, text_overlap)
+            substring_score = _substring_score(query, text)
+            relevance = max(vector_score, text_overlap, substring_score)
             item = dict(row)
             item["relevance"] = relevance
             ranked.append(item)
 
         ranked.sort(key=lambda item: (item["relevance"], item.get("confidence") or 0.0), reverse=True)
+        if query.strip():
+            ranked = [item for item in ranked if item["relevance"] > 0.0]
         return ranked[:limit]
 
     def _fts_candidates(self, query: str, limit: int) -> list[dict[str, Any]]:
@@ -529,6 +687,7 @@ class KnowledgeStore:
                 "tickets": conn.execute("SELECT COUNT(*) FROM dts_tickets").fetchone()[0],
                 "pr_links": conn.execute("SELECT COUNT(*) FROM pr_links").fetchone()[0],
                 "code_snippets": conn.execute("SELECT COUNT(*) FROM code_snippets").fetchone()[0],
+                "snippet_judgements": conn.execute("SELECT COUNT(*) FROM snippet_judgements").fetchone()[0],
                 "issue_patterns": conn.execute("SELECT COUNT(*) FROM issue_patterns").fetchone()[0],
                 "review_runs": conn.execute("SELECT COUNT(*) FROM review_runs").fetchone()[0],
             }
@@ -541,9 +700,94 @@ class KnowledgeStore:
             "last_sync": dict(last_sync) if last_sync else None,
         }
 
+    def inspect(self, limit: int = 10) -> dict[str, Any]:
+        limit = max(1, min(limit, 100))
+        with self.connect() as conn:
+            status = self.status()
+            tickets = conn.execute(
+                """
+                SELECT ticket_id, summary, severity, created_at, reporter
+                FROM dts_tickets
+                ORDER BY imported_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            pr_links = conn.execute(
+                """
+                SELECT ticket_id, pr_url, owner, repo, pr_number, status, error
+                FROM pr_links
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            snippets = conn.execute(
+                """
+                SELECT ticket_id, pr_url, file_path, old_start_line, new_start_line,
+                       length(vulnerable_snippet) AS vulnerable_length,
+                       length(fixed_snippet) AS fixed_length
+                FROM code_snippets
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            patterns = conn.execute(
+                """
+                SELECT ticket_id, issue_type, code_feature, fix_advice, confidence
+                FROM issue_patterns
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            judgements = conn.execute(
+                """
+                SELECT snippet_id, ticket_id, has_security_issue, issue_type,
+                       confidence, source, created_at
+                FROM snippet_judgements
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return {
+            **status,
+            "samples": {
+                "tickets": [dict(row) for row in tickets],
+                "pr_links": [dict(row) for row in pr_links],
+                "code_snippets": [dict(row) for row in snippets],
+                "snippet_judgements": [dict(row) for row in judgements],
+                "issue_patterns": [dict(row) for row in patterns],
+            },
+            "query_examples": [
+                "问题单号，例如 TDS2026042127064",
+                "问题类型，例如 命令注入风险、路径穿越风险",
+                "代码符号，例如 popen、GetCmdLineResult、cmdline_output",
+                "文件路径，例如 src/controllers/node/ubse_node_controller_register_config.cpp",
+                "修复建议关键词，例如 白名单、参数化调用、路径规范化",
+                "可疑代码片段，例如 popen(cmd.c_str())",
+            ],
+        }
+
 
 def _fts_query(query: str) -> str:
     words = [word for word in query.replace('"', " ").split() if len(word) > 1]
     words = [word.strip("()[]{}:;,+-*'") for word in words]
     words = [word for word in words if word]
     return " OR ".join(f'"{word}"' for word in words[:12])
+
+
+def _substring_score(query: str, text: str) -> float:
+    normalized_query = " ".join(query.lower().split())
+    normalized_text = text.lower()
+    if not normalized_query:
+        return 0.0
+    if normalized_query in normalized_text:
+        return 1.0
+    parts = [part for part in normalized_query.split() if part]
+    if not parts:
+        return 0.0
+    hits = sum(1 for part in parts if part in normalized_text)
+    return hits / len(parts)

@@ -18,6 +18,17 @@ The workflow is:
 3. If a user asks about a topic, ticket, or code fragment, call `dts_kb_query`.
 4. Only report risks grounded in matched DTS evidence.
 
+## Knowledge Base Maintenance Mode
+
+When maintaining the knowledge base, prefer OpenCode Agent judgement mode:
+
+1. Import/sync DTS data with `skipBuildKb: true`.
+2. Read pending snippets with `dts_judgement_tasks`.
+3. Judge only the old snippet and its context; DTS summary is a candidate label, not proof.
+4. Persist the decision with `dts_apply_judgement`.
+5. Do not add a snippet to the knowledge base when the old code/context does not show a real security issue.
+6. Ignore snippets where the old/new diff is only comments, whitespace, formatting, or variable rename without logic change.
+
 ## Finding Format
 
 Each finding must include:

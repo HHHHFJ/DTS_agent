@@ -18,6 +18,10 @@ class AppConfig:
     gitcode_api_base: str
     gitcode_token: str | None
     gitcode_timeout: int
+    llm_judge_command: str | None
+    llm_judge_url: str | None
+    llm_judge_token: str | None
+    llm_judge_timeout: int
     review_min_confidence: float
 
 
@@ -44,6 +48,10 @@ def load_config(root: str | Path | None = None) -> AppConfig:
         ).rstrip("/"),
         gitcode_token=os.environ.get("GITCODE_ACCESS_TOKEN"),
         gitcode_timeout=int(os.environ.get("GITCODE_TIMEOUT", "30")),
+        llm_judge_command=os.environ.get("DTS_AGENT_LLM_COMMAND"),
+        llm_judge_url=os.environ.get("DTS_AGENT_LLM_URL"),
+        llm_judge_token=os.environ.get("DTS_AGENT_LLM_TOKEN"),
+        llm_judge_timeout=int(os.environ.get("DTS_AGENT_LLM_TIMEOUT", "120")),
         review_min_confidence=float(os.environ.get("DTS_REVIEW_MIN_CONFIDENCE", "0.35")),
     )
 
