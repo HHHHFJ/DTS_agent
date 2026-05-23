@@ -1,4 +1,4 @@
-ï»¿import { tool } from "@opencode-ai/plugin"
+import { tool } from "@opencode-ai/plugin"
 import path from "node:path"
 
 type OpenCodeContext = {
@@ -75,7 +75,7 @@ export const sync_now = tool({
 })
 
 export const import_excel = tool({
-  description: "Import a DTS Excel/CSV file with columns åºå·/é—®é¢˜å•å·/ç®€è¦æè¿°/ä¸¥é‡ç¨‹åº¦/åˆ›å»ºæ—¶é—´/æå‡ºæ–¹/ä¿®æ”¹æ–‡ä»¶æ¸…å•.",
+  description: "Import a DTS Excel/CSV file with columns ĞòºÅ/ÎÊÌâµ¥ºÅ/¼òÒªÃèÊö/ÑÏÖØ³Ì¶È/´´½¨Ê±¼ä/Ìá³ö·½/ĞŞ¸ÄÎÄ¼şÇåµ¥.",
   args: {
     excelPath: tool.schema.string().describe("Path to the DTS Excel or CSV file."),
     skipFetchPr: tool.schema.boolean().optional().describe("Only import tickets and PR links, without fetching GitCode PR diffs."),
@@ -162,7 +162,7 @@ export const apply_judgement = tool({
   args: {
     snippetId: tool.schema.string().describe("Snippet id from dts_judgement_tasks."),
     hasSecurityIssue: tool.schema.boolean().describe("Whether the old snippet/context contains a real security issue."),
-    issueType: tool.schema.string().describe("Issue type, for example å‘½ä»¤æ³¨å…¥é£é™©, æƒé™æ ¡éªŒç¼ºå¤±, è·¯å¾„ç©¿è¶Šé£é™©, or é€šç”¨å®‰å…¨ç¼ºé™·."),
+    issueType: tool.schema.string().describe("Issue type, for example ÃüÁî×¢Èë·çÏÕ, È¨ÏŞĞ£ÑéÈ±Ê§, Â·¾¶´©Ô½·çÏÕ, or Í¨ÓÃ°²È«È±Ïİ."),
     confidence: tool.schema.number().describe("Confidence from 0 to 1."),
     rationale: tool.schema.string().describe("Short Chinese rationale based on the old snippet and context."),
     fixAdvice: tool.schema.string().optional().describe("Optional fix advice. Defaults to built-in advice for the issue type."),
@@ -200,7 +200,7 @@ export const review_diff = tool({
     base: tool.schema.string().optional().describe("Git base revision. Defaults to HEAD~1."),
     path: tool.schema.string().optional().describe("Repository path. Defaults to current OpenCode worktree."),
     exclude: tool.schema.array(tool.schema.string()).optional().describe("Directory names or relative paths to exclude, for example [\'test\', \'tests\']."),
-    minConfidence: tool.schema.number().optional().describe("Minimum match confidence. Defaults to DTS_REVIEW_MIN_CONFIDENCE or 0.35."),
+    minConfidence: tool.schema.number().optional().describe("Minimum match confidence. Defaults to DTS_REVIEW_MIN_CONFIDENCE or 0.70."),
   },
   async execute(args, context) {
     const cmd = ["review-diff", "--path", args.path || context.worktree || context.directory || ".", "--base", args.base || "HEAD~1", "--json"]
@@ -215,7 +215,7 @@ export const review_repo = tool({
   args: {
     path: tool.schema.string().optional().describe("Repository path. Defaults to current OpenCode worktree."),
     exclude: tool.schema.array(tool.schema.string()).optional().describe("Directory names or relative paths to exclude, for example [\'test\', \'tests\']."),
-    minConfidence: tool.schema.number().optional().describe("Minimum match confidence. Defaults to DTS_REVIEW_MIN_CONFIDENCE or 0.35."),
+    minConfidence: tool.schema.number().optional().describe("Minimum match confidence. Defaults to DTS_REVIEW_MIN_CONFIDENCE or 0.70."),
   },
   async execute(args, context) {
     const cmd = ["review-repo", "--path", args.path || context.worktree || context.directory || ".", "--json"]

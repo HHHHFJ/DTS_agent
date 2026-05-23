@@ -9,34 +9,53 @@ from dts_agent.review.code_feature_extractor import extract_diff_chunks, extract
 from dts_agent.utils import cosine, json_loads_dict, normalize_code, sparse_embedding, truncate
 
 GENERIC_TOKENS = {
-    "std",
-    "string",
-    "vector",
-    "map",
-    "unordered_map",
-    "unordered_set",
-    "set",
-    "list",
-    "int",
-    "char",
-    "bool",
-    "void",
-    "auto",
-    "const",
-    "static",
-    "return",
-    "include",
-    "namespace",
-    "class",
-    "struct",
-    "public",
-    "private",
-    "protected",
-    "size_t",
-    "true",
-    "false",
-    "null",
-    "nullptr",
+    # --- Base C++ types/keywords ---
+    "std", "string", "vector", "map", "unordered_map",
+    "unordered_set", "set", "list", "deque", "queue", "stack",
+    "int", "char", "bool", "void", "auto", "const", "static",
+    "return", "include", "namespace", "class", "struct",
+    "public", "private", "protected", "virtual", "override",
+    "size_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t",
+    "int8_t", "int16_t", "int32_t", "int64_t",
+    "true", "false", "null", "nullptr",
+    "template", "typename", "using", "typedef",
+    "enum", "inline", "explicit",
+    # --- Generic IO / stream operations (main false positive source) ---
+    "ifstream", "ofstream", "fstream", "istream", "ostream",
+    "stringstream", "istringstream", "ostringstream",
+    "is_open", "close", "open",
+    "getline", "read", "write", "flush", "seekg", "seekp",
+    "tellg", "tellp", "peek", "putback", "ignore",
+    "file", "path", "filename", "filepath", "dir", "directory",
+    "proc", "sys", "dev", "etc", "tmp",
+    "stdin", "stdout", "stderr",
+    "in", "out", "ate", "app", "trunc", "binary", "ios",
+    # --- Generic string/data processing ---
+    "size", "length", "buffer", "buf", "data",
+    "begin", "end", "front", "back",
+    "empty", "clear", "erase", "insert", "append",
+    "substr", "find", "rfind", "compare",
+    "c_str", "str", "token", "line", "text",
+    "error", "failed", "success", "result", "ret",
+    # --- Python generic keywords ---
+    "def", "class", "import", "from", "self",
+    "if", "elif", "else", "for", "while", "try", "except",
+    "with", "as", "pass", "raise", "yield", "lambda",
+    "True", "False", "None", "len", "range", "type",
+    "str", "int", "float", "bool", "list", "dict", "set", "tuple",
+    "pathlib", "Path",
+    # --- TypeScript/JS generic keywords ---
+    "const", "let", "var", "function", "async", "await",
+    "export", "import", "from", "typeof",
+    "undefined", "null", "true", "false",
+    "string", "number", "boolean", "any", "void",
+    "if", "else", "for", "while", "do", "switch", "case",
+    "try", "catch", "finally", "throw",
+    "new", "delete", "typeof", "instanceof",
+    "console", "log", "error", "warn",
+    "process", "env", "argv",
+    # --- shell generic ---
+    "echo", "exit", "export", "source",
 }
 
 ISSUE_ANCHORS = {
@@ -54,14 +73,7 @@ ISSUE_ANCHORS = {
         "createprocess",
     },
     "路径穿越风险": {
-        "path",
-        "filename",
-        "filepath",
-        "file",
-        "open",
         "fopen",
-        "ifstream",
-        "ofstream",
         "remove",
         "unlink",
         "rename",
@@ -95,6 +107,21 @@ ISSUE_ANCHORS = {
     },
 }
 
+
+# Hardcoded path detection: reduces false positives for path traversal patterns
+HARDCODED_SYSTEM_PATHS = frozenset(["/proc/", "/sys/", "/dev/", "/etc/"])
+
+def _is_hardcoded_path_snippet(snippet_text, issue_type):
+    """Check if snippet only reads hardcoded system paths (low risk)."""
+    if issue_type not in ("\u8def\u5f84\u7a7f\u8d8a\u98ce\u9669", "\u547d\u4ee4\u6ce8\u5165\u98ce\u9669"):
+        return False
+    lower = snippet_text.lower()
+    import re
+    open_cnt = len(re.findall(r"\b(?:open|fopen|ifstream)\s*[\(\"<]", lower))
+    if open_cnt == 0:
+        return False
+    sys_hits = sum(1 for p in HARDCODED_SYSTEM_PATHS if p in lower)
+    return sys_hits >= open_cnt
 
 def review_repo(
     store: KnowledgeStore,
@@ -165,6 +192,10 @@ def review_chunks(
             )
             if score < min_confidence:
                 continue
+            if _is_hardcoded_path_snippet(chunk.text, issue_type):
+                score = score * 0.5
+                if score < min_confidence:
+                    continue
             key = (str(chunk.file_path), chunk.start_line, str(pattern.get("id")))
             if key in seen:
                 continue
