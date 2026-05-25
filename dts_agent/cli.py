@@ -14,6 +14,10 @@ from dts_agent.dts_tools.excel_loader import ExcelLoadError, load_dts_excel
 from dts_agent.dts_tools.fetch_tool import DtsFetchError, run_fetch_script
 from dts_agent.dts_tools.gitcode_client import GitCodeClient, GitCodeFetchError
 from dts_agent.dts_tools.pr_parser import parse_ticket_pr_links
+from dts_agent.dts_tools.token_setup import (
+    collect_missing_token_requirements,
+    prompt_for_missing_tokens,
+)
 from dts_agent.extraction import build_issue_pattern, classify_summary_issue
 from dts_agent.extraction_rules import ISSUE_RULES
 from dts_agent.kb.sqlite_store import KnowledgeStore
@@ -73,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--mode", default="manual", choices=["manual", "scheduled"])
     sync.add_argument("--skip-fetch-pr", action="store_true", help="Only import tickets and PR links.")
     sync.add_argument("--skip-build-kb", action="store_true", help="Fetch PR snippets but do not build issue patterns.")
+    sync.add_argument("--interactive-token-setup", action="store_true", help="Open a token setup dialog when parsed PR/MR hosts need credentials.")
     sync.add_argument("--require-llm", action="store_true", help="Fail if no LLM security judge is configured.")
     sync.add_argument("--force", action="store_true", help="Reserved for callers that want explicit manual refresh.")
     sync.add_argument("--json", action="store_true")
@@ -81,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     import_excel.add_argument("--file", required=True)
     import_excel.add_argument("--skip-fetch-pr", action="store_true")
     import_excel.add_argument("--skip-build-kb", action="store_true", help="Fetch PR snippets but do not build issue patterns.")
+    import_excel.add_argument("--interactive-token-setup", action="store_true", help="Open a token setup dialog when parsed PR/MR hosts need credentials.")
     import_excel.add_argument("--require-llm", action="store_true", help="Fail if no LLM security judge is configured.")
     import_excel.add_argument("--json", action="store_true")
 
@@ -92,6 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_diff = sub.add_parser("fetch-pr-diff", help="Fetch and parse repository PR/MR diff snippets.")
     fetch_diff.add_argument("--url", required=True)
     fetch_diff.add_argument("--ticket", default="MANUAL")
+    fetch_diff.add_argument("--interactive-token-setup", action="store_true", help="Open a token setup dialog when this PR/MR host needs credentials.")
     fetch_diff.add_argument("--json", action="store_true")
 
     build_kb = sub.add_parser("build-kb", help="Build issue patterns from stored code snippets.")
@@ -175,6 +182,7 @@ def dispatch(args: argparse.Namespace, config: Any, store: KnowledgeStore) -> An
             store,
             build_kb=not args.skip_build_kb,
             require_llm=args.require_llm,
+            interactive_token_setup=args.interactive_token_setup,
         )
     if args.command == "parse-pr-urls":
         return command_parse_pr_urls(args, store)
@@ -284,6 +292,7 @@ def command_sync(args: argparse.Namespace, config: Any, store: KnowledgeStore) -
         store,
         build_kb=not args.skip_build_kb,
         require_llm=args.require_llm,
+        interactive_token_setup=args.interactive_token_setup,
     )
     excel_hash = file_sha256(excel_path)
     store.create_sync_run(
@@ -305,6 +314,7 @@ def command_import_excel(
     store: KnowledgeStore,
     build_kb: bool = True,
     require_llm: bool = False,
+    interactive_token_setup: bool = False,
 ) -> dict[str, Any]:
     tickets = load_dts_excel(excel_path)
     client = _repo_client(config)
@@ -313,12 +323,17 @@ def command_import_excel(
         "status": "ok",
         "excel_path": str(Path(excel_path).resolve()),
         "ticket_count": len(tickets),
+        "ticket_ids": [ticket.ticket_id for ticket in tickets],
         "pr_link_count": 0,
         "snippet_count": 0,
         "pattern_count": 0,
         "build_kb": build_kb,
+        "pr_link_results": [],
+        "missing_token_requirements": [],
+        "token_setup": {"requested": False, "configured_env_vars": []},
         "errors": [],
     }
+    link_jobs: list[tuple[DtsTicket, Any, dict[str, Any]]] = []
 
     for ticket in tickets:
         store.upsert_ticket(ticket)
@@ -326,24 +341,55 @@ def command_import_excel(
         stats["errors"].extend({"ticket_id": ticket.ticket_id, "error": error} for error in errors)
         for link in links:
             stats["pr_link_count"] += 1
+            link_result = {
+                "ticket_id": link.ticket_id,
+                "pr_url": link.pr_url,
+                "host": link.host,
+                "provider": link.provider,
+                "change_type": link.change_type,
+                "status": "pending",
+                "error": "",
+            }
+            stats["pr_link_results"].append(link_result)
             store.upsert_pr_link(link, status="pending")
             if not fetch_pr:
+                link_result["status"] = "parsed"
                 continue
+            link_jobs.append((ticket, link, link_result))
+
+    if fetch_pr and link_jobs:
+        missing_requirements = collect_missing_token_requirements([link for _, link, _ in link_jobs])
+        stats["missing_token_requirements"] = [item.to_json() for item in missing_requirements]
+        if missing_requirements and interactive_token_setup:
+            stats["token_setup"]["requested"] = True
             try:
-                snippets = client.fetch_pr_snippets(link)
-            except GitCodeFetchError as exc:
-                store.mark_pr_link(link, status="failed", error=str(exc))
-                stats["errors"].append({"ticket_id": ticket.ticket_id, "pr_url": link.pr_url, "error": str(exc)})
-                continue
-            for snippet in snippets:
-                snippet_id = store.upsert_snippet(snippet)
-                stats["snippet_count"] += 1
-                if build_kb:
-                    pattern = build_issue_pattern(ticket, snippet_id, snippet, security_judge=security_judge)
-                    if pattern:
-                        store.upsert_pattern(pattern)
-                        stats["pattern_count"] += 1
-            store.mark_pr_link(link, status="ok")
+                configured = prompt_for_missing_tokens(missing_requirements)
+                stats["token_setup"]["configured_env_vars"] = sorted(configured)
+            except RuntimeError as exc:
+                stats["errors"].append({"error": str(exc)})
+            missing_requirements = collect_missing_token_requirements([link for _, link, _ in link_jobs])
+            stats["missing_token_requirements"] = [item.to_json() for item in missing_requirements]
+
+    for ticket, link, link_result in link_jobs:
+        try:
+            snippets = client.fetch_pr_snippets(link)
+        except GitCodeFetchError as exc:
+            store.mark_pr_link(link, status="failed", error=str(exc))
+            link_result["status"] = "failed"
+            link_result["error"] = str(exc)
+            stats["errors"].append({"ticket_id": ticket.ticket_id, "pr_url": link.pr_url, "error": str(exc)})
+            continue
+        for snippet in snippets:
+            snippet_id = store.upsert_snippet(snippet)
+            stats["snippet_count"] += 1
+            if build_kb:
+                pattern = build_issue_pattern(ticket, snippet_id, snippet, security_judge=security_judge)
+                if pattern:
+                    store.upsert_pattern(pattern)
+                    stats["pattern_count"] += 1
+        store.mark_pr_link(link, status="ok")
+        link_result["status"] = "ok"
+        link_result["snippet_count"] = len(snippets)
     return stats
 
 
@@ -371,6 +417,9 @@ def command_fetch_pr_diff(args: argparse.Namespace, config: Any) -> dict[str, An
     if errors or not links:
         raise ValueError("; ".join(errors) or f"Cannot parse PR/MR URL: {args.url}")
     client = _repo_client(config)
+    missing_requirements = collect_missing_token_requirements(links)
+    if missing_requirements and args.interactive_token_setup:
+        prompt_for_missing_tokens(missing_requirements)
     snippets = client.fetch_pr_snippets(links[0])
     return {"status": "ok", "snippets": [asdict(snippet) for snippet in snippets]}
 

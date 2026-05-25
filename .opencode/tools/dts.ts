@@ -9,7 +9,8 @@ type OpenCodeContext = {
 /** Run a dts_agent command and return a ToolResult-compatible object. */
 async function runDts(args: string[], context: OpenCodeContext) {
   try {
-    const home = Bun.env.DTS_AGENT_HOME || context.worktree || context.directory || process.cwd()
+    const pluginHome = path.resolve(import.meta.dir, "..", "..")
+    const home = Bun.env.DTS_AGENT_HOME || pluginHome
     const python = Bun.env.DTS_AGENT_PYTHON || "python"
     const pythonPath = [home, Bun.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
     const proc = Bun.spawn([python, "-m", "dts_agent", "--root", home, ...args], {
@@ -54,13 +55,14 @@ export const status = tool({
 export const sync_now = tool({
   description: "Run dts_data_fetch.py, import DTS Excel, fetch configured repository PR/MR diffs, and update the local SQLite security knowledge base.",
   args: {
-    force: tool.schema.boolean().optional().describe("Force a manual refresh marker for audit output."),
+    force: tool.schema.boolean().optional().describe("Force a manual refresh marker for maintenance output."),
     excelPath: tool.schema.string().optional().describe("Existing DTS Excel/CSV path to import instead of running dts_data_fetch.py."),
     excelOutputDir: tool.schema.string().optional().describe("Directory where dts_data_fetch.py generated Excel/CSV should be stored."),
     excelOutputFile: tool.schema.string().optional().describe("Exact generated Excel/CSV path, ending with .xlsx or .csv."),
     fetchScript: tool.schema.string().optional().describe("Path to dts_data_fetch.py. Defaults to DTS_FETCH_SCRIPT or ./dts_data_fetch.py."),
     skipFetchPr: tool.schema.boolean().optional().describe("Only import Excel tickets and PR links, without fetching repository PR/MR diffs."),
     skipBuildKb: tool.schema.boolean().optional().describe("Fetch PR snippets but do not build knowledge patterns. Use this for OpenCode Agent judgement mode."),
+    interactiveTokenSetup: tool.schema.boolean().optional().describe("Open a local token setup dialog when parsed PR/MR hosts need credentials. Defaults to true."),
     requireLlm: tool.schema.boolean().optional().describe("Fail if no LLM security judge is configured."),
   },
   async execute(args, context) {
@@ -72,6 +74,7 @@ export const sync_now = tool({
     if (args.fetchScript) cmd.push("--fetch-script", args.fetchScript)
     if (args.skipFetchPr) cmd.push("--skip-fetch-pr")
     if (args.skipBuildKb) cmd.push("--skip-build-kb")
+    if (args.interactiveTokenSetup !== false) cmd.push("--interactive-token-setup")
     if (args.requireLlm) cmd.push("--require-llm")
     return await runDts(cmd, context)
   },
@@ -83,12 +86,14 @@ export const import_excel = tool({
     excelPath: tool.schema.string().describe("Path to the DTS Excel or CSV file."),
     skipFetchPr: tool.schema.boolean().optional().describe("Only import tickets and PR links, without fetching repository PR/MR diffs."),
     skipBuildKb: tool.schema.boolean().optional().describe("Fetch PR snippets but do not build knowledge patterns. Use this for OpenCode Agent judgement mode."),
+    interactiveTokenSetup: tool.schema.boolean().optional().describe("Open a local token setup dialog when parsed PR/MR hosts need credentials. Defaults to true."),
     requireLlm: tool.schema.boolean().optional().describe("Fail if no LLM security judge is configured."),
   },
   async execute(args, context) {
     const cmd = ["import-excel", "--file", args.excelPath, "--json"]
     if (args.skipFetchPr) cmd.push("--skip-fetch-pr")
     if (args.skipBuildKb) cmd.push("--skip-build-kb")
+    if (args.interactiveTokenSetup !== false) cmd.push("--interactive-token-setup")
     if (args.requireLlm) cmd.push("--require-llm")
     return await runDts(cmd, context)
   },
@@ -113,9 +118,12 @@ export const fetch_pr_diff = tool({
   args: {
     prUrl: tool.schema.string().describe("Repository PR/MR URL, for example https://gitcode.com/openeuler/ubs-engine/pull/466 or https://codehub-y.huawei.com/group/repo/-/merge_requests/123."),
     ticketId: tool.schema.string().optional().describe("DTS ticket id used for traceability. Defaults to MANUAL."),
+    interactiveTokenSetup: tool.schema.boolean().optional().describe("Open a local token setup dialog when this PR/MR host needs credentials. Defaults to true."),
   },
   async execute(args, context) {
-    return await runDts(["fetch-pr-diff", "--url", args.prUrl, "--ticket", args.ticketId || "MANUAL", "--json"], context)
+    const cmd = ["fetch-pr-diff", "--url", args.prUrl, "--ticket", args.ticketId || "MANUAL", "--json"]
+    if (args.interactiveTokenSetup !== false) cmd.push("--interactive-token-setup")
+    return await runDts(cmd, context)
   },
 })
 

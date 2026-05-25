@@ -238,6 +238,8 @@ URL 解析会根据 `修改文件清单` 中的域名自动识别代码仓类型
 - `codehub-y.huawei.com`、`szy-y.codehub.huawei.com` 以及包含 `codehub` 且以 `huawei.com` 结尾的域名默认识别为 `codehub`，优先尝试常见 CodeHub/GitLab MR API，再回退 `.diff/.patch`。
 - 未知域名默认识别为 `generic`，会使用原始 URL 的 `.diff/.patch` 形式尝试抓取。
 
+`/dts-sync` 和 `dts_import_excel` 会先解析 Excel 中全部 PR/MR URL，再统一检查哪些代码仓缺少访问 token。OpenCode 工具默认启用交互式 token 配置：如果多个代码仓都缺少 token，会弹出一次本地窗口批量填写，并可写入 Windows 用户环境变量；配置完成后才继续抓取 diff。
+
 如需动态扩展域名，不需要改代码，可配置环境变量：
 
 ```powershell

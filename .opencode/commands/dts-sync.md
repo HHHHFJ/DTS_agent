@@ -4,9 +4,7 @@ agent: dts-sync-maintainer
 subtask: true
 ---
 
-Run `dts_status`, then run `dts_sync_now` with `force: true`.
-
-This is a knowledge-base maintenance command only. Do not call `dts_review_diff`, `dts_review_repo`, or `dts_generate_report`. Do not output a DTS security review report.
+This is a knowledge-base maintenance command only. Do not call `dts_review_diff`, `dts_review_repo`, or `dts_generate_report`. Do not scan, inspect, or review the current workspace repository. Do not output a DTS security review report.
 
 Support optional `$ARGUMENTS` path parameters:
 
@@ -16,11 +14,14 @@ Support optional `$ARGUMENTS` path parameters:
 
 Use OpenCode Agent judgement mode by default:
 
-1. If `$ARGUMENTS` contains `excel=` or `file=`, call `dts_import_excel` with `excelPath` and `skipBuildKb: true`. Do not call `dts_sync_now` for this case.
-2. If `$ARGUMENTS` contains `output-dir=` or `output-file=`, call `dts_sync_now` with `excelOutputDir` or `excelOutputFile`, plus `force: true` and `skipBuildKb: true`.
-3. If no path is specified, call `dts_sync_now` with `force: true` and `skipBuildKb: true`.
-4. Call `dts_judgement_tasks`.
-5. Judge each returned snippet with the current OpenCode model.
-6. Call `dts_apply_judgement` for each snippet.
+1. Run `dts_status`.
+2. If `$ARGUMENTS` contains `excel=` or `file=`, call `dts_import_excel` with `excelPath`, `skipBuildKb: true`, and `interactiveTokenSetup: true`. Do not call `dts_sync_now` for this case.
+3. If `$ARGUMENTS` contains `output-dir=` or `output-file=`, call `dts_sync_now` with `excelOutputDir` or `excelOutputFile`, plus `force: true`, `skipBuildKb: true`, and `interactiveTokenSetup: true`.
+4. If no path is specified, call `dts_sync_now` with `force: true`, `skipBuildKb: true`, and `interactiveTokenSetup: true`.
+5. The tool parses all PR/MR URLs before fetching. If any parsed host needs a token, it opens one local token setup dialog for all missing hosts before diff fetching continues.
+6. Read the tool result. If it contains `errors` or failed `pr_link_results`, report those failures explicitly, including missing token messages. Do not present the run as fully successful when any PR/MR fetch failed.
+7. Only call `dts_judgement_tasks` for ticket ids returned by this import/sync result. Do not judge old pending snippets from unrelated previous runs.
+8. Judge only the `vulnerable_snippet` and `context` returned by `dts_judgement_tasks`. Do not read or audit files from the current workspace.
+9. Call `dts_apply_judgement` for each returned snippet.
 
-Summarize imported tickets, PR links, snippets, judgements, patterns, and failures. Use a short maintenance summary, not a security audit/report format.
+Summarize imported tickets, PR links, snippets, judgements, patterns, and failures. Use a short knowledge-base maintenance summary, not a security audit/report format.

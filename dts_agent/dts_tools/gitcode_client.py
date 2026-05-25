@@ -32,6 +32,9 @@ class GitCodeClient:
     def fetch_pr_snippets(self, link: PrLink) -> list[CodeSnippet]:
         errors: list[str] = []
         token = self._token_for_link(link)
+        missing_token_error = self._missing_token_error(link, token)
+        if missing_token_error:
+            raise GitCodeFetchError(missing_token_error)
         for url in self._candidate_urls(link):
             try:
                 payload = self._get(url, token=token)
@@ -119,6 +122,17 @@ class GitCodeClient:
         if link.provider == "codehub":
             return self.codehub_token or self.repo_token
         return self.repo_token
+
+    def _missing_token_error(self, link: PrLink, token: str | None) -> str:
+        if token:
+            return ""
+        if link.provider != "codehub":
+            return ""
+        host_env = _host_token_env_name(link.host)
+        return (
+            f"Missing access token for CodeHub repository {link.host}. "
+            f"Set {host_env}, CODEHUB_ACCESS_TOKEN, DTS_REPO_ACCESS_TOKEN, or REPO_ACCESS_TOKEN."
+        )
 
 
 def parse_gitcode_json(link: PrLink, data: object) -> list[CodeSnippet]:
@@ -341,8 +355,11 @@ def _unique(values: list[str]) -> list[str]:
 
 
 def _host_token(host: str) -> str | None:
-    key = "DTS_REPO_TOKEN_" + "".join(ch if ch.isalnum() else "_" for ch in host.upper()).strip("_")
-    return os.environ.get(key)
+    return os.environ.get(_host_token_env_name(host))
+
+
+def _host_token_env_name(host: str) -> str:
+    return "DTS_REPO_TOKEN_" + "".join(ch if ch.isalnum() else "_" for ch in host.upper()).strip("_")
 
 
 def _to_int(value: object) -> int | None:
