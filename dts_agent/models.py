@@ -24,10 +24,17 @@ class PrLink:
     owner: str
     repo: str
     pr_number: str
+    host: str = ""
+    provider: str = "generic"
+    change_type: str = "pull"
+    repo_path: str = ""
+    original_url: str = ""
 
     @property
     def stable_id(self) -> str:
-        return f"{self.ticket_id}:{self.owner}/{self.repo}/pull/{self.pr_number}"
+        repo_path = self.repo_path or f"{self.owner}/{self.repo}"
+        host = self.host or self.provider
+        return f"{self.ticket_id}:{host}:{repo_path}/{self.change_type}/{self.pr_number}"
 
 
 @dataclass(frozen=True)

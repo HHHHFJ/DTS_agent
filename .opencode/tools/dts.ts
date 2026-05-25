@@ -31,12 +31,9 @@ async function runDts(args: string[], context: OpenCodeContext) {
     const trimmed = stdout.trim()
     if (!trimmed) return { output: "OK" }
     const parsed = JSON.parse(trimmed)
-    // ToolResult type: string | { title?: string; output: string; metadata?: ...; attachments?: ... }
-    // If the Python already returned { output: ... }, pass through.
     if (typeof parsed === "object" && parsed !== null && typeof parsed.output === "string") {
       return parsed
     }
-    // Otherwise, keep structured data in metadata, output as formatted text.
     return {
       output: JSON.stringify(parsed, null, 2),
       metadata: parsed,
@@ -55,17 +52,23 @@ export const status = tool({
 })
 
 export const sync_now = tool({
-  description: "Run dts_data_fetch.py, import DTS Excel, fetch GitCode PR diffs, and update the local SQLite security knowledge base.",
+  description: "Run dts_data_fetch.py, import DTS Excel, fetch configured repository PR/MR diffs, and update the local SQLite security knowledge base.",
   args: {
     force: tool.schema.boolean().optional().describe("Force a manual refresh marker for audit output."),
+    excelPath: tool.schema.string().optional().describe("Existing DTS Excel/CSV path to import instead of running dts_data_fetch.py."),
+    excelOutputDir: tool.schema.string().optional().describe("Directory where dts_data_fetch.py generated Excel/CSV should be stored."),
+    excelOutputFile: tool.schema.string().optional().describe("Exact generated Excel/CSV path, ending with .xlsx or .csv."),
     fetchScript: tool.schema.string().optional().describe("Path to dts_data_fetch.py. Defaults to DTS_FETCH_SCRIPT or ./dts_data_fetch.py."),
-    skipFetchPr: tool.schema.boolean().optional().describe("Only import Excel tickets and PR links, without fetching GitCode PR diffs."),
+    skipFetchPr: tool.schema.boolean().optional().describe("Only import Excel tickets and PR links, without fetching repository PR/MR diffs."),
     skipBuildKb: tool.schema.boolean().optional().describe("Fetch PR snippets but do not build knowledge patterns. Use this for OpenCode Agent judgement mode."),
     requireLlm: tool.schema.boolean().optional().describe("Fail if no LLM security judge is configured."),
   },
   async execute(args, context) {
     const cmd = ["sync", "--mode", "manual", "--json"]
     if (args.force) cmd.push("--force")
+    if (args.excelPath) cmd.push("--file", args.excelPath)
+    if (args.excelOutputDir) cmd.push("--output-dir", args.excelOutputDir)
+    if (args.excelOutputFile) cmd.push("--output-file", args.excelOutputFile)
     if (args.fetchScript) cmd.push("--fetch-script", args.fetchScript)
     if (args.skipFetchPr) cmd.push("--skip-fetch-pr")
     if (args.skipBuildKb) cmd.push("--skip-build-kb")
@@ -75,10 +78,10 @@ export const sync_now = tool({
 })
 
 export const import_excel = tool({
-  description: "Import a DTS Excel/CSV file with columns –Ú∫≈/Œ Ã‚µ•∫≈/ºÚ“™√Ë ˆ/—œ÷ÿ≥Ã∂»/¥¥Ω® ±º‰/Ã·≥ˆ∑Ω/–ﬁ∏ƒŒƒº˛«Âµ•.",
+  description: "Import a DTS Excel/CSV file with columns Â∫èÂè∑/ÈóÆÈ¢òÂçïÂè∑/ÁÆÄË¶ÅÊèèËø∞/‰∏•ÈáçÁ®ãÂ∫¶/ÂàõÂª∫Êó∂Èó¥/ÊèêÂá∫Êñπ/‰øÆÊîπÊñá‰ª∂Ê∏ÖÂçï.",
   args: {
     excelPath: tool.schema.string().describe("Path to the DTS Excel or CSV file."),
-    skipFetchPr: tool.schema.boolean().optional().describe("Only import tickets and PR links, without fetching GitCode PR diffs."),
+    skipFetchPr: tool.schema.boolean().optional().describe("Only import tickets and PR links, without fetching repository PR/MR diffs."),
     skipBuildKb: tool.schema.boolean().optional().describe("Fetch PR snippets but do not build knowledge patterns. Use this for OpenCode Agent judgement mode."),
     requireLlm: tool.schema.boolean().optional().describe("Fail if no LLM security judge is configured."),
   },
@@ -92,7 +95,7 @@ export const import_excel = tool({
 })
 
 export const parse_pr_urls = tool({
-  description: "Parse GitCode PR URLs from an imported DTS ticket or from a DTS Excel file.",
+  description: "Parse configured repository PR/MR URLs from an imported DTS ticket or from a DTS Excel file.",
   args: {
     ticketId: tool.schema.string().optional().describe("Optional DTS ticket id."),
     excelPath: tool.schema.string().optional().describe("Optional DTS Excel/CSV path to parse directly."),
@@ -106,9 +109,9 @@ export const parse_pr_urls = tool({
 })
 
 export const fetch_pr_diff = tool({
-  description: "Fetch and parse old/new code snippets from a GitCode pull request URL.",
+  description: "Fetch and parse old/new code snippets from a repository pull request or merge request URL.",
   args: {
-    prUrl: tool.schema.string().describe("GitCode PR URL, for example https://gitcode.com/openeuler/ubs-engine/pull/466."),
+    prUrl: tool.schema.string().describe("Repository PR/MR URL, for example https://gitcode.com/openeuler/ubs-engine/pull/466 or https://codehub-y.huawei.com/group/repo/-/merge_requests/123."),
     ticketId: tool.schema.string().optional().describe("DTS ticket id used for traceability. Defaults to MANUAL."),
   },
   async execute(args, context) {
@@ -162,7 +165,7 @@ export const apply_judgement = tool({
   args: {
     snippetId: tool.schema.string().describe("Snippet id from dts_judgement_tasks."),
     hasSecurityIssue: tool.schema.boolean().describe("Whether the old snippet/context contains a real security issue."),
-    issueType: tool.schema.string().describe("Issue type, for example √¸¡Ó◊¢»Î∑Áœ’, »®œﬁ–£—È»± ß, ¬∑æ∂¥©‘Ω∑Áœ’, or Õ®”√∞≤»´»±œ›."),
+    issueType: tool.schema.string().describe("Issue type, for example ÂëΩ‰ª§Ê≥®ÂÖ•È£éÈô©, ÊùÉÈôêÊ†°È™åÁº∫Â§±, Ë∑ØÂæÑÁ©øË∂äÈ£éÈô©, or ÈÄöÁî®ÂÆâÂÖ®Áº∫Èô∑."),
     confidence: tool.schema.number().describe("Confidence from 0 to 1."),
     rationale: tool.schema.string().describe("Short Chinese rationale based on the old snippet and context."),
     fixAdvice: tool.schema.string().optional().describe("Optional fix advice. Defaults to built-in advice for the issue type."),
@@ -199,7 +202,7 @@ export const review_diff = tool({
   args: {
     base: tool.schema.string().optional().describe("Git base revision. Defaults to HEAD~1."),
     path: tool.schema.string().optional().describe("Repository path. Defaults to current OpenCode worktree."),
-    exclude: tool.schema.array(tool.schema.string()).optional().describe("Directory names or relative paths to exclude, for example [\'test\', \'tests\']."),
+    exclude: tool.schema.array(tool.schema.string()).optional().describe("Directory names or relative paths to exclude, for example ['test', 'tests']."),
     minConfidence: tool.schema.number().optional().describe("Minimum match confidence. Defaults to DTS_REVIEW_MIN_CONFIDENCE or 0.70."),
   },
   async execute(args, context) {
@@ -214,7 +217,7 @@ export const review_repo = tool({
   description: "Review a repository path against the DTS security knowledge base.",
   args: {
     path: tool.schema.string().optional().describe("Repository path. Defaults to current OpenCode worktree."),
-    exclude: tool.schema.array(tool.schema.string()).optional().describe("Directory names or relative paths to exclude, for example [\'test\', \'tests\']."),
+    exclude: tool.schema.array(tool.schema.string()).optional().describe("Directory names or relative paths to exclude, for example ['test', 'tests']."),
     minConfidence: tool.schema.number().optional().describe("Minimum match confidence. Defaults to DTS_REVIEW_MIN_CONFIDENCE or 0.70."),
   },
   async execute(args, context) {

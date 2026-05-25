@@ -40,6 +40,11 @@ CREATE TABLE IF NOT EXISTS pr_links (
   owner TEXT,
   repo TEXT,
   pr_number TEXT,
+  host TEXT,
+  provider TEXT,
+  change_type TEXT,
+  repo_path TEXT,
+  original_url TEXT,
   status TEXT,
   error TEXT,
   created_at TEXT,
@@ -166,6 +171,64 @@ class KnowledgeStore:
     def init(self) -> None:
         with self.connect() as conn:
             conn.executescript(SCHEMA_SQL)
+            self._migrate(conn)
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        self._ensure_columns(
+            conn,
+            "pr_links",
+            {
+                "host": "TEXT",
+                "provider": "TEXT",
+                "change_type": "TEXT",
+                "repo_path": "TEXT",
+                "original_url": "TEXT",
+            },
+        )
+        self._backfill_pr_link_metadata(conn)
+
+    def _ensure_columns(
+        self,
+        conn: sqlite3.Connection,
+        table: str,
+        columns: dict[str, str],
+    ) -> None:
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for name, column_type in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {column_type}")
+
+    def _backfill_pr_link_metadata(self, conn: sqlite3.Connection) -> None:
+        from dts_agent.dts_tools.pr_parser import PrUrlParseError, normalize_pr_url
+
+        rows = conn.execute(
+            """
+            SELECT ticket_id, pr_url
+            FROM pr_links
+            WHERE host IS NULL OR provider IS NULL OR change_type IS NULL OR repo_path IS NULL
+            """
+        ).fetchall()
+        for row in rows:
+            try:
+                link = normalize_pr_url(row["ticket_id"], row["pr_url"])
+            except PrUrlParseError:
+                continue
+            conn.execute(
+                """
+                UPDATE pr_links
+                SET host = ?, provider = ?, change_type = ?, repo_path = ?, original_url = ?
+                WHERE ticket_id = ? AND pr_url = ?
+                """,
+                (
+                    link.host,
+                    link.provider,
+                    link.change_type,
+                    link.repo_path,
+                    link.original_url,
+                    row["ticket_id"],
+                    row["pr_url"],
+                ),
+            )
 
     def upsert_ticket(self, ticket: DtsTicket) -> None:
         with self.connect() as conn:
@@ -199,12 +262,20 @@ class KnowledgeStore:
         with self.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO pr_links(id, ticket_id, pr_url, owner, repo, pr_number, status, error, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO pr_links(
+                  id, ticket_id, pr_url, owner, repo, pr_number, host, provider,
+                  change_type, repo_path, original_url, status, error, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(ticket_id, pr_url) DO UPDATE SET
                   owner=excluded.owner,
                   repo=excluded.repo,
                   pr_number=excluded.pr_number,
+                  host=excluded.host,
+                  provider=excluded.provider,
+                  change_type=excluded.change_type,
+                  repo_path=excluded.repo_path,
+                  original_url=excluded.original_url,
                   status=excluded.status,
                   error=excluded.error
                 """,
@@ -215,6 +286,11 @@ class KnowledgeStore:
                     link.owner,
                     link.repo,
                     link.pr_number,
+                    link.host,
+                    link.provider,
+                    link.change_type,
+                    link.repo_path,
+                    link.original_url,
                     status,
                     error,
                     utc_now_text(),
@@ -715,7 +791,8 @@ class KnowledgeStore:
             ).fetchall()
             pr_links = conn.execute(
                 """
-                SELECT ticket_id, pr_url, owner, repo, pr_number, status, error
+                SELECT ticket_id, pr_url, owner, repo, pr_number, host, provider,
+                       change_type, repo_path, original_url, status, error
                 FROM pr_links
                 ORDER BY created_at DESC
                 LIMIT ?

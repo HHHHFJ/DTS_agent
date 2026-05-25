@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -14,16 +15,26 @@ class GitCodeFetchError(RuntimeError):
 
 
 class GitCodeClient:
-    def __init__(self, api_base: str, token: str | None = None, timeout: int = 30) -> None:
+    def __init__(
+        self,
+        api_base: str,
+        token: str | None = None,
+        timeout: int = 30,
+        codehub_token: str | None = None,
+        repo_token: str | None = None,
+    ) -> None:
         self.api_base = api_base.rstrip("/")
         self.token = token
         self.timeout = timeout
+        self.codehub_token = codehub_token
+        self.repo_token = repo_token
 
     def fetch_pr_snippets(self, link: PrLink) -> list[CodeSnippet]:
         errors: list[str] = []
+        token = self._token_for_link(link)
         for url in self._candidate_urls(link):
             try:
-                payload = self._get(url)
+                payload = self._get(url, token=token)
             except GitCodeFetchError as exc:
                 errors.append(str(exc))
                 continue
@@ -34,23 +45,50 @@ class GitCodeClient:
         raise GitCodeFetchError("; ".join(errors) or f"No snippets returned for {link.pr_url}")
 
     def _candidate_urls(self, link: PrLink) -> list[str]:
+        if link.provider == "gitcode" or link.host.endswith("gitcode.com"):
+            return self._gitcode_candidate_urls(link)
+        if link.provider == "codehub":
+            return self._codehub_candidate_urls(link)
+        return self._generic_candidate_urls(link)
+
+    def _gitcode_candidate_urls(self, link: PrLink) -> list[str]:
         owner = _quote_path(link.owner)
         repo = _quote_path(link.repo)
         number = _quote_path(link.pr_number)
-        return [
+        candidates = [
             f"{self.api_base}/repos/{owner}/{repo}/pulls/{number}/files.json",
             f"{self.api_base}/repos/{owner}/{repo}/pulls/{number}/files",
             f"https://gitcode.com/{owner}/{repo}/pull/{number}.diff",
             f"https://gitcode.com/{owner}/{repo}/pulls/{number}.diff",
         ]
+        return _unique(candidates)
 
-    def _get(self, url: str) -> bytes:
+    def _codehub_candidate_urls(self, link: PrLink) -> list[str]:
+        repo_path = link.repo_path or f"{link.owner}/{link.repo}"
+        project_id = _quote_project_path(repo_path)
+        number = _quote_path(link.pr_number)
+        base = _clean_change_url(link.original_url or link.pr_url)
+        candidates: list[str] = []
+        if link.change_type == "merge_requests":
+            candidates.extend(
+                [
+                    f"https://{link.host}/api/v4/projects/{project_id}/merge_requests/{number}/changes",
+                    f"https://{link.host}/api/v4/projects/{project_id}/merge_requests/{number}/diffs",
+                ]
+            )
+        candidates.extend(_diff_candidates(base))
+        return _unique(candidates)
+
+    def _generic_candidate_urls(self, link: PrLink) -> list[str]:
+        return _unique(_diff_candidates(_clean_change_url(link.original_url or link.pr_url)))
+
+    def _get(self, url: str, token: str | None = None) -> bytes:
         request = urllib.request.Request(url)
         request.add_header("Accept", "application/json, text/plain, */*")
         request.add_header("User-Agent", "dts-agent/0.1")
-        if self.token:
-            request.add_header("Authorization", f"Bearer {self.token}")
-            request.add_header("PRIVATE-TOKEN", self.token)
+        if token:
+            request.add_header("Authorization", f"Bearer {token}")
+            request.add_header("PRIVATE-TOKEN", token)
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 return response.read()
@@ -71,6 +109,16 @@ class GitCodeClient:
             if snippets:
                 return snippets
         return parse_unified_diff(link, text)
+
+    def _token_for_link(self, link: PrLink) -> str | None:
+        host_token = _host_token(link.host)
+        if host_token:
+            return host_token
+        if link.provider == "gitcode":
+            return self.token
+        if link.provider == "codehub":
+            return self.codehub_token or self.repo_token
+        return self.repo_token
 
 
 def parse_gitcode_json(link: PrLink, data: object) -> list[CodeSnippet]:
@@ -207,7 +255,7 @@ def _extract_files(data: object) -> list[object]:
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
-        for key in ("files", "data", "diffs"):
+        for key in ("files", "data", "diffs", "changes"):
             value = data.get(key)
             if isinstance(value, list):
                 return value
@@ -219,7 +267,9 @@ def _extract_files(data: object) -> list[object]:
 
 
 def _ensure_file_header(file_path: str, patch: str) -> str:
-    if patch.startswith("diff --git") or patch.startswith("@@"):
+    if patch.startswith("diff --git"):
+        return patch
+    if patch.startswith("@@"):
         return f"diff --git a/{file_path} b/{file_path}\n--- a/{file_path}\n+++ b/{file_path}\n{patch}"
     return patch
 
@@ -251,6 +301,48 @@ def _range_start(value: str) -> int:
 
 def _quote_path(value: str) -> str:
     return urllib.parse.quote(value, safe="")
+
+
+def _quote_project_path(value: str) -> str:
+    return urllib.parse.quote(value, safe="")
+
+
+def _clean_change_url(url: str) -> str:
+    parsed = urllib.parse.urlparse(url.strip())
+    if not parsed.scheme or not parsed.netloc:
+        return url.strip().rstrip("/")
+    path = parsed.path.rstrip("/")
+    if path.endswith(".diff"):
+        path = path.removesuffix(".diff")
+    if path.endswith(".patch"):
+        path = path.removesuffix(".patch")
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
+
+
+def _diff_candidates(base_url: str) -> list[str]:
+    if not base_url:
+        return []
+    base_url = base_url.rstrip("/")
+    return [
+        f"{base_url}.diff",
+        f"{base_url}.patch",
+        f"{base_url}/diffs",
+    ]
+
+
+def _unique(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
+
+
+def _host_token(host: str) -> str | None:
+    key = "DTS_REPO_TOKEN_" + "".join(ch if ch.isalnum() else "_" for ch in host.upper()).strip("_")
+    return os.environ.get(key)
 
 
 def _to_int(value: object) -> int | None:

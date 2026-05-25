@@ -68,6 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
     sync = sub.add_parser("sync", help="Run DTS fetch script and import the generated Excel file.")
     sync.add_argument("--fetch-script", help="Path to dts_data_fetch.py.")
     sync.add_argument("--file", help="Import an existing Excel/CSV instead of running the fetch script.")
+    sync.add_argument("--output-dir", help="Directory where a newly fetched Excel/CSV should be stored.")
+    sync.add_argument("--output-file", help="Exact Excel/CSV path where the newly fetched file should be copied.")
     sync.add_argument("--mode", default="manual", choices=["manual", "scheduled"])
     sync.add_argument("--skip-fetch-pr", action="store_true", help="Only import tickets and PR links.")
     sync.add_argument("--skip-build-kb", action="store_true", help="Fetch PR snippets but do not build issue patterns.")
@@ -82,12 +84,12 @@ def build_parser() -> argparse.ArgumentParser:
     import_excel.add_argument("--require-llm", action="store_true", help="Fail if no LLM security judge is configured.")
     import_excel.add_argument("--json", action="store_true")
 
-    parse_urls = sub.add_parser("parse-pr-urls", help="Parse PR URLs from Excel or imported DB records.")
+    parse_urls = sub.add_parser("parse-pr-urls", help="Parse PR/MR URLs from Excel or imported DB records.")
     parse_urls.add_argument("--file")
     parse_urls.add_argument("--ticket")
     parse_urls.add_argument("--json", action="store_true")
 
-    fetch_diff = sub.add_parser("fetch-pr-diff", help="Fetch and parse GitCode PR diff snippets.")
+    fetch_diff = sub.add_parser("fetch-pr-diff", help="Fetch and parse repository PR/MR diff snippets.")
     fetch_diff.add_argument("--url", required=True)
     fetch_diff.add_argument("--ticket", default="MANUAL")
     fetch_diff.add_argument("--json", action="store_true")
@@ -220,11 +222,22 @@ def command_sync(args: argparse.Namespace, config: Any, store: KnowledgeStore) -
     started_at = utc_now_text()
     fetch_script = Path(args.fetch_script).resolve() if args.fetch_script else config.fetch_script
     excel_path: Path | None = Path(args.file).resolve() if args.file else None
-    fetch_metadata: dict[str, Any] = {"mode": args.mode, "force": bool(args.force)}
+    output_file = Path(args.output_file).resolve() if args.output_file else None
+    output_dir = Path(args.output_dir).resolve() if args.output_dir else config.inbox_dir
+    if output_file and args.output_dir:
+        raise ValueError("--output-file and --output-dir cannot be used together")
+    if excel_path and (args.output_file or args.output_dir):
+        raise ValueError("--file cannot be used together with --output-file or --output-dir")
+    fetch_metadata: dict[str, Any] = {
+        "mode": args.mode,
+        "force": bool(args.force),
+        "output_dir": str(output_dir),
+        "output_file": str(output_file or ""),
+    }
 
     if excel_path is None:
         try:
-            fetch_result = run_fetch_script(fetch_script, config.inbox_dir)
+            fetch_result = run_fetch_script(fetch_script, output_file.parent if output_file else output_dir, output_file=output_file)
         except (DtsFetchError, TimeoutError) as exc:
             store.create_sync_run(
                 started_at=started_at,
@@ -294,7 +307,7 @@ def command_import_excel(
     require_llm: bool = False,
 ) -> dict[str, Any]:
     tickets = load_dts_excel(excel_path)
-    client = GitCodeClient(config.gitcode_api_base, config.gitcode_token, config.gitcode_timeout)
+    client = _repo_client(config)
     security_judge = create_security_judge(config, require_llm=require_llm) if build_kb else None
     stats = {
         "status": "ok",
@@ -356,8 +369,8 @@ def command_parse_pr_urls(args: argparse.Namespace, store: KnowledgeStore) -> di
 def command_fetch_pr_diff(args: argparse.Namespace, config: Any) -> dict[str, Any]:
     links, errors = parse_ticket_pr_links(args.ticket, f"['{args.url}']")
     if errors or not links:
-        raise ValueError("; ".join(errors) or f"Cannot parse PR URL: {args.url}")
-    client = GitCodeClient(config.gitcode_api_base, config.gitcode_token, config.gitcode_timeout)
+        raise ValueError("; ".join(errors) or f"Cannot parse PR/MR URL: {args.url}")
+    client = _repo_client(config)
     snippets = client.fetch_pr_snippets(links[0])
     return {"status": "ok", "snippets": [asdict(snippet) for snippet in snippets]}
 
@@ -397,6 +410,16 @@ def command_build_kb(
             store.upsert_pattern(pattern)
             count += 1
     return {"status": "ok", "pattern_count": count, "rebuild": rebuild}
+
+
+def _repo_client(config: Any) -> GitCodeClient:
+    return GitCodeClient(
+        config.gitcode_api_base,
+        config.gitcode_token,
+        config.gitcode_timeout,
+        codehub_token=getattr(config, "codehub_token", None),
+        repo_token=getattr(config, "repo_access_token", None),
+    )
 
 
 def command_clear_kb(store: KnowledgeStore, include_judgements: bool = False) -> dict[str, Any]:

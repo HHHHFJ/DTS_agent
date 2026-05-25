@@ -3,9 +3,10 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from dts_agent.dts_tools.excel_loader import REQUIRED_HEADERS, load_dts_excel
-from dts_agent.dts_tools.pr_parser import parse_pr_url_list, parse_ticket_pr_links
+from dts_agent.dts_tools.pr_parser import parse_pr_url_list, parse_ticket_pr_links, provider_for_host
 from tests.helpers import write_minimal_xlsx
 
 
@@ -54,6 +55,37 @@ class ExcelAndPrParserTest(unittest.TestCase):
         self.assertEqual(links[0].owner, "openeuler")
         self.assertEqual(links[0].repo, "ubs-engine")
         self.assertEqual(links[0].pr_number, "466")
+        self.assertEqual(links[0].host, "gitcode.com")
+        self.assertEqual(links[0].provider, "gitcode")
+        self.assertEqual(links[0].repo_path, "openeuler/ubs-engine")
+
+    def test_parses_codehub_merge_request_links(self) -> None:
+        links, errors = parse_ticket_pr_links(
+            "DTS001",
+            "['https://codehub-y.huawei.com/group/subgroup/service/-/merge_requests/123']",
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(links[0].host, "codehub-y.huawei.com")
+        self.assertEqual(links[0].provider, "codehub")
+        self.assertEqual(links[0].owner, "group/subgroup")
+        self.assertEqual(links[0].repo, "service")
+        self.assertEqual(links[0].repo_path, "group/subgroup/service")
+        self.assertEqual(links[0].change_type, "merge_requests")
+        self.assertEqual(links[0].pr_number, "123")
+
+    def test_parses_configured_repository_hosts(self) -> None:
+        with patch.dict("os.environ", {"DTS_REPO_HOSTS": "git.example.com=codehub"}):
+            links, errors = parse_ticket_pr_links(
+                "DTS001",
+                "['https://git.example.com/team/repo/pulls/9']",
+            )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(links[0].provider, "codehub")
+        self.assertEqual(links[0].change_type, "pull")
+        self.assertEqual(links[0].pr_number, "9")
+        self.assertEqual(provider_for_host("szy-y.codehub.huawei.com"), "codehub")
 
 
 if __name__ == "__main__":

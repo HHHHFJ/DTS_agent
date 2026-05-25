@@ -17,6 +17,8 @@ class AppConfig:
     fetch_script: Path
     gitcode_api_base: str
     gitcode_token: str | None
+    codehub_token: str | None
+    repo_access_token: str | None
     gitcode_timeout: int
     llm_judge_command: str | None
     llm_judge_url: str | None
@@ -37,7 +39,7 @@ def load_config(root: str | Path | None = None) -> AppConfig:
     return AppConfig(
         root=base,
         data_dir=data_dir,
-        inbox_dir=(data_dir / "inbox").resolve(),
+        inbox_dir=Path(os.environ.get("DTS_AGENT_INBOX_DIR", data_dir / "inbox")).resolve(),
         processed_dir=(data_dir / "processed").resolve(),
         failed_dir=(data_dir / "failed").resolve(),
         reports_dir=Path(os.environ.get("DTS_AGENT_REPORTS_DIR", base / "reports")).resolve(),
@@ -47,6 +49,8 @@ def load_config(root: str | Path | None = None) -> AppConfig:
             "GITCODE_API_BASE", "https://gitcode.com/api/v5"
         ).rstrip("/"),
         gitcode_token=os.environ.get("GITCODE_ACCESS_TOKEN"),
+        codehub_token=os.environ.get("CODEHUB_ACCESS_TOKEN"),
+        repo_access_token=os.environ.get("DTS_REPO_ACCESS_TOKEN") or os.environ.get("REPO_ACCESS_TOKEN"),
         gitcode_timeout=int(os.environ.get("GITCODE_TIMEOUT", "30")),
         llm_judge_command=os.environ.get("DTS_AGENT_LLM_COMMAND"),
         llm_judge_url=os.environ.get("DTS_AGENT_LLM_URL"),

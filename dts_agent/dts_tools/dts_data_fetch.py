@@ -13,6 +13,7 @@ DTS 系统自动化导出脚本 - 使用 persistent 上下文自动登录
 import time
 import re
 import os
+import argparse
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
@@ -24,6 +25,40 @@ TARGET_VERSIONS = ["BeiMing-I 26", "BeiMing 25"]
 FILTER_DEPARTMENT = "验证管理部"
 OUTPUT_DIR = r"D:\test"
 OUTPUT_FILENAME = "DTS 问题单汇总.xlsx"
+
+
+def parse_args():
+    """Parse optional output path arguments without changing existing defaults."""
+    parser = argparse.ArgumentParser(description="Fetch DTS tickets and export an Excel file.")
+    parser.add_argument("--output-dir", help="Directory where the generated Excel should be saved.")
+    parser.add_argument("--output-file", help="Exact generated Excel file path.")
+    args, _unknown = parser.parse_known_args()
+    return args
+
+
+def resolve_output_path(args=None) -> str:
+    """Resolve DTS Excel output path from environment, then fallback defaults."""
+    output_file = (
+        getattr(args, "output_file", None)
+        or os.environ.get("DTS_EXCEL_OUTPUT_FILE")
+        or os.environ.get("DTS_FETCH_OUTPUT_FILE")
+    )
+    if output_file:
+        output_path = os.path.abspath(output_file)
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        return output_path
+
+    output_dir = (
+        getattr(args, "output_dir", None)
+        or os.environ.get("DTS_EXCEL_OUTPUT_DIR")
+        or os.environ.get("DTS_FETCH_OUTPUT_DIR")
+        or OUTPUT_DIR
+    )
+    os.makedirs(output_dir, exist_ok=True)
+    return os.path.join(output_dir, OUTPUT_FILENAME)
+
 
 # Excel 列定义
 COLUMNS = [
@@ -145,6 +180,7 @@ def create_excel(data_list: list, output_path: str):
 
 def main():
     """主函数"""
+    args = parse_args()
     print("=" * 60)
     print("DTS 系统问题单自动导出脚本 (Persistent 模式)")
     print("=" * 60)
@@ -486,7 +522,7 @@ def main():
 
             # 步骤 4: 生成 Excel
             if data_list:
-                output_path = os.path.join(OUTPUT_DIR, OUTPUT_FILENAME)
+                output_path = resolve_output_path(args)
                 create_excel(data_list, output_path)
                 print(f"\n[完成] 任务执行成功！")
                 print(f"  文件位置：{output_path}")

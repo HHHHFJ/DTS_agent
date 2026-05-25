@@ -88,7 +88,7 @@
   <path d="M84 205 C87 188 105 188 109 205 C105 220 88 220 84 205 Z" fill="#e2231a"/>
   <path d="M96 181 L96 229" stroke="#e2231a" stroke-width="2"/>
 
-  <text x="57" y="365" class="boxTitle">GitCode</text>
+  <text x="52" y="365" class="boxTitle">代码仓</text>
   <text x="39" y="392" class="small">PR URL 列表</text>
   <text x="39" y="413" class="small">old/new diff</text>
   <rect x="68" y="310" width="56" height="36" rx="8" fill="#fff" stroke="#7c8ea3"/>
@@ -160,11 +160,11 @@
   <rect x="585" y="430" width="135" height="185" class="subpanel"/>
   <text x="625" y="458" class="smallTitle">Skill 3</text>
   <text x="604" y="485" class="smallTitle">Diff 抽取</text>
-  <text x="602" y="520" class="small">GitCode API</text>
+  <text x="592" y="520" class="small">多代码仓 API</text>
   <text x="602" y="542" class="small">patch 解析</text>
   <text x="602" y="564" class="small">old/new 片段</text>
   <rect x="597" y="585" width="111" height="23" rx="4" fill="#edf6ff" stroke="#cde3ff"/>
-  <text x="604" y="602" class="tiny">gitcode_client</text>
+  <text x="604" y="602" class="tiny">repo diff client</text>
 
   <rect x="740" y="430" width="135" height="185" class="subpanel"/>
   <text x="780" y="458" class="smallTitle">Skill 4</text>
@@ -248,7 +248,7 @@
   <text x="1390" y="496" class="sectionTitle white">安全性</text>
   <text x="1340" y="545" class="text">• 本地数据存储</text>
   <text x="1340" y="580" class="text">• DTS 证据可追溯</text>
-  <text x="1340" y="615" class="text">• GitCode Token 环境变量</text>
+  <text x="1340" y="615" class="text">• 代码仓 Token 环境变量</text>
   <text x="1340" y="650" class="text">• 不提交 SQLite 与 Excel</text>
 
   <rect x="1310" y="725" width="250" height="315" class="purplePanel"/>

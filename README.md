@@ -1,6 +1,6 @@
 # DTS Guardian for OpenCode
 
-本项目实现本地 OpenCode 工作流：调用现有 `dts_data_fetch.py` 拉取 DTS Excel，解析 `修改文件清单` 中的 GitCode PR URL，提取修复前/修复后代码片段，沉淀到 SQLite 安全知识库，并在新项目仓中匹配同类代码问题、生成安全测试报告。
+本项目实现本地 OpenCode 工作流：调用现有 `dts_data_fetch.py` 拉取 DTS Excel，解析 `修改文件清单` 中的 GitCode、CodeHub 或其他已配置代码仓 PR/MR URL，提取修复前/修复后代码片段，沉淀到 SQLite 安全知识库，并在新项目仓中匹配同类代码问题、生成安全测试报告。
 
 ## 三层架构图
 
@@ -9,8 +9,8 @@
 ### 分层职责
 
 - 第 1 层负责本地 OpenCode 操作入口和定时任务入口，不直接实现业务逻辑。
-- 第 2 层负责所有可测试的核心逻辑，包括 Excel 导入、PR URL 标准化、GitCode diff 解析、问题模式抽取、相似代码检视和报告生成。
-- 第 3 层负责数据来源和落地结果，包括 `dts_data_fetch.py`、DTS Excel、GitCode PR、SQLite 知识库、目标代码仓和最终报告。
+- 第 2 层负责所有可测试的核心逻辑，包括 Excel 导入、PR/MR URL 标准化、多代码仓 diff 解析、问题模式抽取、相似代码检视和报告生成。
+- 第 3 层负责数据来源和落地结果，包括 `dts_data_fetch.py`、DTS Excel、GitCode/CodeHub/自定义代码仓 PR 或 MR、SQLite 知识库、目标代码仓和最终报告。
 
 ## 端到端工作流
 
@@ -21,7 +21,7 @@ sequenceDiagram
   participant CLI as dts_agent CLI
   participant Fetch as dts_data_fetch.py
   participant Excel as DTS Excel
-  participant GitCode as GitCode PR
+  participant CodeRepo as 代码仓 PR/MR
   participant KB as SQLite 知识库
   participant Repo as 目标代码仓
   participant Report as 安全测试报告
@@ -31,8 +31,8 @@ sequenceDiagram
   CLI->>Fetch: 调用 DTS 拉取脚本
   Fetch-->>Excel: 输出问题单 Excel
   CLI->>Excel: 读取 7 列字段
-  CLI->>GitCode: 解析 PR URL 并拉取 diff
-  GitCode-->>CLI: 返回修复前/修复后代码片段
+  CLI->>CodeRepo: 解析 PR/MR URL 并拉取 diff
+  CodeRepo-->>CLI: 返回修复前/修复后代码片段
   CLI->>KB: 写入 ticket/pr/snippet
   Agent->>CLI: judge-tasks
   CLI-->>Agent: 返回待判定旧代码片段
@@ -51,7 +51,7 @@ sequenceDiagram
 
 ### 工作流说明
 
-- `/dts-sync`：手动触发同步，默认调用 `dts_agent\dts_tools\dts_data_fetch.py`，导入 Excel，抓取 GitCode PR diff；OpenCode Agent 模式下先写入 ticket/pr/snippet，再由 agent 判定是否入知识库。
+- `/dts-sync`：手动触发同步，默认调用 `dts_agent\dts_tools\dts_data_fetch.py`，导入 Excel，按 URL 域名动态识别并抓取 GitCode、CodeHub 或自定义代码仓 diff；OpenCode Agent 模式下先写入 ticket/pr/snippet，再由 agent 判定是否入知识库。
 - Windows 定时任务：周期性执行同一条 `sync` 链路，用于无人值守增量更新。
 - `/dts-query`：按问题单号、问题类型、关键词或代码片段查询历史安全知识。
 - `/dts-review`：检视当前 git diff 或完整仓库，匹配历史同类问题，输出风险等级、文件位置、相似问题单、证据和修复建议。
@@ -71,10 +71,22 @@ python -m dts_agent init --json
 python -m dts_agent sync --json
 ```
 
-如果已经有 Excel 文件：
+如果已经有 Excel/CSV 文件，可以直接读取，不运行 `dts_data_fetch.py`：
 
 ```powershell
-python -m dts_agent import-excel --file .\data\inbox\dts.xlsx --json
+python -m dts_agent sync --file D:\Upload\dts.xlsx --skip-build-kb --json
+```
+
+如果要运行 `dts_data_fetch.py`，并指定生成文件落地目录：
+
+```powershell
+python -m dts_agent sync --output-dir D:\Upload\dts_excel --skip-build-kb --json
+```
+
+如果要把生成结果复制到指定文件名：
+
+```powershell
+python -m dts_agent sync --output-file D:\Upload\dts_excel\dts_latest.xlsx --skip-build-kb --json
 ```
 
 OpenCode Agent 判定模式：
@@ -178,6 +190,16 @@ python -m dts_agent --root <ProjectRoot> sync --mode scheduled --fetch-script <P
 - `/dts-report`：运行 `dts-report-writer`，生成 Markdown/JSON 安全测试报告。
 - `/dts-query`：查询历史同类问题。
 
+`/dts-sync` 支持在 OpenCode 中传入 Excel 读取或生成路径：
+
+```text
+/dts-sync excel=D:\Upload\dts.xlsx
+/dts-sync output-dir=D:\Upload\dts_excel
+/dts-sync output-file=D:\Upload\dts_excel\dts_latest.xlsx
+```
+
+其中 `excel=` 或 `file=` 只读取已有文件，不运行 `dts_data_fetch.py`，也不会生成新文件；`output-dir=` 表示运行拉取脚本并让 `dts_data_fetch.py` 输出到指定目录；`output-file=` 表示运行拉取脚本并让 `dts_data_fetch.py` 输出到指定 `.xlsx` 或 `.csv` 文件。后续知识库导入会从这个指定路径读取。
+
 如果在其他项目仓复用这套 OpenCode 配置，设置：
 
 ```powershell
@@ -202,13 +224,41 @@ Excel/CSV 固定读取 7 列：
 
 ```text
 ['https://gitcode.com/openeuler/ubs-engine/pull/466']
+['https://codehub-y.huawei.com/group/repo/-/merge_requests/123']
+['https://szy-y.codehub.huawei.com/group/subgroup/repo/pulls/456']
 ```
 
 一个问题单可包含多个 URL。
+
+## 多代码仓配置
+
+URL 解析会根据 `修改文件清单` 中的域名自动识别代码仓类型：
+
+- `gitcode.com` 默认识别为 `gitcode`，优先调用 GitCode PR 文件接口，再回退 `.diff`。
+- `codehub-y.huawei.com`、`szy-y.codehub.huawei.com` 以及包含 `codehub` 且以 `huawei.com` 结尾的域名默认识别为 `codehub`，优先尝试常见 CodeHub/GitLab MR API，再回退 `.diff/.patch`。
+- 未知域名默认识别为 `generic`，会使用原始 URL 的 `.diff/.patch` 形式尝试抓取。
+
+如需动态扩展域名，不需要改代码，可配置环境变量：
+
+```powershell
+$env:DTS_REPO_HOSTS = "git.example.com=generic,codehub.example.com=codehub"
+$env:DTS_REPO_HOSTS_JSON = '{"codehub-y.huawei.com":{"provider":"codehub"},"git.example.com":{"provider":"generic"}}'
+```
+
+访问凭证按优先级读取：
+
+```powershell
+$env:GITCODE_ACCESS_TOKEN = "<gitcode token>"
+$env:CODEHUB_ACCESS_TOKEN = "<codehub token>"
+$env:DTS_REPO_ACCESS_TOKEN = "<generic repository token>"
+$env:DTS_REPO_TOKEN_CODEHUB_Y_HUAWEI_COM = "<host specific token>"
+```
+
+`DTS_REPO_TOKEN_<HOST>` 的 `<HOST>` 使用大写，并将域名中的 `.`、`-` 等非字母数字字符替换为 `_`。
 
 ## 轻量化约束
 
 - 不依赖 PostgreSQL、pgvector、openpyxl、requests、numpy。
 - SQLite 单文件存储，使用 FTS5 和纯 Python 相似度计算。
-- GitCode token 从 `GITCODE_ACCESS_TOKEN` 读取。
+- GitCode、CodeHub 和自定义代码仓 token 均从环境变量读取。
 - 没有可提取代码片段的问题单不会生成知识条目。
